@@ -1,0 +1,52 @@
+{
+  "_fixture": "HTML-only email body",
+  "FromName": "Playo",
+  "MessageStream": "inbound",
+  "From": "bookings@playo.co",
+  "FromFull": {
+    "Email": "bookings@playo.co",
+    "Name": "Playo",
+    "MailboxHash": ""
+  },
+  "To": "owner.smasharena@gmail.com",
+  "ToFull": [
+    {
+      "Email": "owner.smasharena@gmail.com",
+      "Name": "",
+      "MailboxHash": ""
+    }
+  ],
+  "Cc": "",
+  "CcFull": [],
+  "Bcc": "",
+  "BccFull": [],
+  "OriginalRecipient": "smash-arena-demo0001@in.toridesk.com",
+  "Subject": "Booking Confirmed - Smash Arena | Booking ID: PLY-2H5J8K",
+  "MessageID": "{{PMID}}",
+  "ReplyTo": "",
+  "MailboxHash": "",
+  "Date": "{{NOW_RFC}}",
+  "TextBody": "",
+  "HtmlBody": "<html><body><p>Hi Smash Arena,</p><p>You have received a new booking on Playo.</p><table><tr><td>Booking ID: PLY-2H5J8K</td></tr><tr><td>Customer Name: Karan Singh</td></tr><tr><td>Phone: +91 97777 11111</td></tr><tr><td>Sport: Badminton</td></tr></table><div>Court: Court 3</div><div>Date: {{DATE2}}</div><div>Time: 09:00 AM - 10:00 AM</div><p>Amount: &#8377;800.00</p><p>Payment Status: Paid</p><p>Team Playo</p></body></html>",
+  "StrippedTextReply": "",
+  "Tag": "",
+  "Headers": [
+    {
+      "Name": "X-Forwarded-For",
+      "Value": "owner.smasharena@gmail.com smash-arena-demo0001@in.toridesk.com"
+    },
+    {
+      "Name": "X-Forwarded-To",
+      "Value": "smash-arena-demo0001@in.toridesk.com"
+    },
+    {
+      "Name": "Message-ID",
+      "Value": "{{MSGID}}"
+    },
+    {
+      "Name": "Date",
+      "Value": "{{NOW_RFC}}"
+    }
+  ],
+  "Attachments": []
+}

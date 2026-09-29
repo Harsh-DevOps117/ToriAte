@@ -1,0 +1,9 @@
+#!/bin/sh
+# Runs once, on first start of an empty Postgres volume.
+set -eu
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<SQL
+CREATE ROLE tori_app LOGIN PASSWORD '${TORI_DB_PASSWORD}';
+CREATE ROLE n8n      LOGIN PASSWORD '${N8N_DB_PASSWORD}';
+CREATE DATABASE tori OWNER tori_app;
+CREATE DATABASE n8n  OWNER n8n;
+SQL

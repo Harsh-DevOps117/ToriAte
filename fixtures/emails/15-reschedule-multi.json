@@ -1,0 +1,52 @@
+{
+  "_fixture": "02 moved to one court on another day -> Court 3 event deleted, Court 1 moved",
+  "FromName": "Playo",
+  "MessageStream": "inbound",
+  "From": "bookings@playo.co",
+  "FromFull": {
+    "Email": "bookings@playo.co",
+    "Name": "Playo",
+    "MailboxHash": ""
+  },
+  "To": "owner.smasharena@gmail.com",
+  "ToFull": [
+    {
+      "Email": "owner.smasharena@gmail.com",
+      "Name": "",
+      "MailboxHash": ""
+    }
+  ],
+  "Cc": "",
+  "CcFull": [],
+  "Bcc": "",
+  "BccFull": [],
+  "OriginalRecipient": "smash-arena-demo0001@in.toridesk.com",
+  "Subject": "Booking Rescheduled - Smash Arena | Booking ID: PLY-5T1N4B",
+  "MessageID": "{{PMID}}",
+  "ReplyTo": "",
+  "MailboxHash": "",
+  "Date": "{{NOW_RFC}}",
+  "TextBody": "Hi Smash Arena,\n\nThe following booking has been rescheduled. New slot details below.\n\nBooking ID: PLY-5T1N4B\nCustomer Name: Neha Kapoor\nPhone: +91 99887 76655\nSport: Badminton\nVenue: Smash Arena\n\nCourt: Court 1\nDate: {{DATE2}}\nTime: 07:00 PM - 08:00 PM\n\nAmount: ₹800.00\nPayment Status: Pay at venue\n\nTeam Playo\nThis is an automated email. Please do not reply.",
+  "HtmlBody": "",
+  "StrippedTextReply": "",
+  "Tag": "",
+  "Headers": [
+    {
+      "Name": "X-Forwarded-For",
+      "Value": "owner.smasharena@gmail.com smash-arena-demo0001@in.toridesk.com"
+    },
+    {
+      "Name": "X-Forwarded-To",
+      "Value": "smash-arena-demo0001@in.toridesk.com"
+    },
+    {
+      "Name": "Message-ID",
+      "Value": "{{MSGID}}"
+    },
+    {
+      "Name": "Date",
+      "Value": "{{NOW_RFC}}"
+    }
+  ],
+  "Attachments": []
+}

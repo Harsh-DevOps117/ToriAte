@@ -1,0 +1,549 @@
+{
+  "id": "toriAdminHookApi",
+  "name": "Tori 05 · Admin API",
+  "description": "Onboarding and ops endpoints, protected by the X-Tori-Admin-Key header: create venue, calendar test (create/delete), reprocess an email.",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 05 · Admin API (header `X-Tori-Admin-Key`)\n- `POST /webhook/admin/venues` — create venue, returns forwarding address\n- `POST /webhook/admin/calendar-test` `{venue, action: create|delete}` — PDF step 5; 404/403 hints\n- `POST /webhook/admin/reprocess` `{raw_id}` — after fixing courts/settings",
+        "height": 180,
+        "width": 560,
+        "color": 7
+      },
+      "id": "e44a4473-d8c4-5f03-9378-851a759d80ec",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/venues",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "4b3663bc-f435-50ac-9aa9-adab79cb4520",
+      "name": "POST admin/venues",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -440,
+        -200
+      ],
+      "webhookId": "5b0f3f5e-8d1e-4d7a-9a3c-0b1f2e3d4c11",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "toriAdminApiKey1",
+          "name": "Admin webhook key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT tori.create_venue($1::jsonb) AS result;",
+        "options": {
+          "queryReplacement": "={{ [ $json.body ] }}"
+        }
+      },
+      "id": "c1671f4f-a8f9-50ce-b456-07bf23c110cf",
+      "name": "Create venue",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -220,
+        -200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "toriPostgres0001",
+          "name": "Tori DB"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ Object.assign({ ok: true }, $json.result) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "f517d1e3-2a2a-5308-8313-781690b8b49a",
+      "name": "Venue created",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: $json.message || 'request failed' } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "bd54aafa-63c5-543d-8aaa-e30699aaf076",
+      "name": "Venue error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/calendar-test",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "31514bb8-0e20-543f-bcf5-b1eab77fedb7",
+      "name": "POST admin/calendar-test",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -440,
+        60
+      ],
+      "webhookId": "5b0f3f5e-8d1e-4d7a-9a3c-0b1f2e3d4c12",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "toriAdminApiKey1",
+          "name": "Admin webhook key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT tori.enqueue_calendar_test($1::text, $2::text) AS job_id;",
+        "options": {
+          "queryReplacement": "={{ [ String($json.body.venue), $json.body.action || 'create' ] }}"
+        }
+      },
+      "id": "f547e4b8-533c-5b8e-bd59-cf645cfddf3e",
+      "name": "Queue calendar test",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -220,
+        60
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "toriPostgres0001",
+          "name": "Tori DB"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "toriDispatchJobs",
+          "mode": "list",
+          "cachedResultName": "Tori 03 · Dispatch calendar + WhatsApp"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "5fc8103c-009e-50f1-adb2-b1ac722eb666",
+      "name": "Run dispatcher (03)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 2,
+        "unit": "seconds"
+      },
+      "id": "701eb498-cab2-5564-a675-f32f624b63da",
+      "name": "Let a parallel run finish",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        0
+      ],
+      "webhookId": "5b0f3f5e-8d1e-4d7a-9a3c-0b1f2e3d4c13",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT tori.job_result($1::bigint) AS result;",
+        "options": {
+          "queryReplacement": "={{ [ $('Queue calendar test').first().json.job_id ] }}"
+        }
+      },
+      "id": "6edd3bcb-e354-5f09-a950-3c20c8d4fc0e",
+      "name": "Read result",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "toriPostgres0001",
+          "name": "Tori DB"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ Object.assign({ ok: $json.result.status === 'done' }, $json.result) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "19a9f8b4-5e34-5833-b628-944df038d822",
+      "name": "Calendar test result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: $json.message || 'request failed' } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "8a24bf12-7180-562c-a933-98ee8caaf5cd",
+      "name": "Calendar test error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/reprocess",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "57d108d8-2c73-55a0-9fd8-93a68034ce3e",
+      "name": "POST admin/reprocess",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -440,
+        320
+      ],
+      "webhookId": "5b0f3f5e-8d1e-4d7a-9a3c-0b1f2e3d4c14",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "toriAdminApiKey1",
+          "name": "Admin webhook key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT tori.reset_for_reprocess($1::bigint) AS result;",
+        "options": {
+          "queryReplacement": "={{ [ $json.body.raw_id ] }}"
+        }
+      },
+      "id": "b9bd949c-ad26-5179-963c-298d0482d860",
+      "name": "Reset email",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -220,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "toriPostgres0001",
+          "name": "Tori DB"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "toriProcessEmail",
+          "mode": "list",
+          "cachedResultName": "Tori 02 · Parse + save booking"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "ef2d5a84-7c8a-5789-a474-3972f96d2bfc",
+      "name": "Parse again (02)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        260
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT jsonb_build_object('raw_id', id, 'status', status, 'reason', status_reason, 'parsed', parse_result -> 'result') AS result FROM tori.raw_message WHERE id = $1::bigint;",
+        "options": {
+          "queryReplacement": "={{ [ $('Reset email').first().json.result.raw_id ] }}"
+        }
+      },
+      "id": "c105ad5f-3fc0-55b7-bedd-99eb0110b176",
+      "name": "Email status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        260
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "toriPostgres0001",
+          "name": "Tori DB"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ Object.assign({ ok: true }, $json.result) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "aee6fc20-37a1-507c-831e-ab467ff17acf",
+      "name": "Reprocess result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        440,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: $json.message || 'request failed' } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "60bd112a-3a3d-52fe-9b91-9bc41ca19c2c",
+      "name": "Reprocess error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "POST admin/venues": {
+      "main": [
+        [
+          {
+            "node": "Create venue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create venue": {
+      "main": [
+        [
+          {
+            "node": "Venue created",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Venue error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST admin/calendar-test": {
+      "main": [
+        [
+          {
+            "node": "Queue calendar test",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue calendar test": {
+      "main": [
+        [
+          {
+            "node": "Run dispatcher (03)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Calendar test error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run dispatcher (03)": {
+      "main": [
+        [
+          {
+            "node": "Let a parallel run finish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Let a parallel run finish": {
+      "main": [
+        [
+          {
+            "node": "Read result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read result": {
+      "main": [
+        [
+          {
+            "node": "Calendar test result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST admin/reprocess": {
+      "main": [
+        [
+          {
+            "node": "Reset email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reset email": {
+      "main": [
+        [
+          {
+            "node": "Parse again (02)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reprocess error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse again (02)": {
+      "main": [
+        [
+          {
+            "node": "Email status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email status": {
+      "main": [
+        [
+          {
+            "node": "Reprocess result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Asia/Kolkata"
+  },
+  "pinData": {},
+  "tags": [],
+  "active": false
+}

@@ -1,0 +1,52 @@
+{
+  "_fixture": "Used with an injected LLM 503 -> waits, then reprocessed",
+  "FromName": "Playo",
+  "MessageStream": "inbound",
+  "From": "bookings@playo.co",
+  "FromFull": {
+    "Email": "bookings@playo.co",
+    "Name": "Playo",
+    "MailboxHash": ""
+  },
+  "To": "owner.smasharena@gmail.com",
+  "ToFull": [
+    {
+      "Email": "owner.smasharena@gmail.com",
+      "Name": "",
+      "MailboxHash": ""
+    }
+  ],
+  "Cc": "",
+  "CcFull": [],
+  "Bcc": "",
+  "BccFull": [],
+  "OriginalRecipient": "smash-arena-demo0001@in.toridesk.com",
+  "Subject": "Booking Confirmed - Smash Arena | Booking ID: PLY-0A9S8D",
+  "MessageID": "{{PMID}}",
+  "ReplyTo": "",
+  "MailboxHash": "",
+  "Date": "{{NOW_RFC}}",
+  "TextBody": "Hi Smash Arena,\n\nYou have received a new booking on Playo.\n\nBooking ID: PLY-0A9S8D\nCustomer Name: Farhan Ali\nPhone: +91 98765 43210\nSport: Badminton\nVenue: Smash Arena\n\nCourt: Court 2\nDate: {{DATE2}}\nTime: 08:00 PM - 09:00 PM\n\nAmount: ₹800.00\nPayment Status: Paid\n\nTeam Playo\nThis is an automated email. Please do not reply.",
+  "HtmlBody": "",
+  "StrippedTextReply": "",
+  "Tag": "",
+  "Headers": [
+    {
+      "Name": "X-Forwarded-For",
+      "Value": "owner.smasharena@gmail.com smash-arena-demo0001@in.toridesk.com"
+    },
+    {
+      "Name": "X-Forwarded-To",
+      "Value": "smash-arena-demo0001@in.toridesk.com"
+    },
+    {
+      "Name": "Message-ID",
+      "Value": "{{MSGID}}"
+    },
+    {
+      "Name": "Date",
+      "Value": "{{NOW_RFC}}"
+    }
+  ],
+  "Attachments": []
+}

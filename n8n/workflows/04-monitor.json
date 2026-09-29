@@ -1,0 +1,171 @@
+{
+  "id": "toriMonitorVenue",
+  "name": "Tori 04 · Monitor",
+  "description": "Every minute: alerts for venues with no Playo email (quiet) and emails stuck in the parser, and retries emails the parser could not read because of a transient error (e.g. Groq rate limit).",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "9f0f84af-87bb-5ca0-8747-f479a43ae62c",
+      "name": "Every minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT tori.check_monitors() AS m;",
+        "options": {}
+      },
+      "id": "cb31957b-1b7a-599c-8b1a-c6dd1cf6856f",
+      "name": "Check venues + stuck emails",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -220,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "toriPostgres0001",
+          "name": "Tori DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const ids = $input.first().json.m.retry_raw_ids || [];\nreturn ids.map((raw_id) => ({ json: { raw_id } }));\n"
+      },
+      "id": "3579d166-245a-5866-a281-465f7113ee37",
+      "name": "Emails to retry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "toriProcessEmail",
+          "mode": "list",
+          "cachedResultName": "Tori 02 · Parse + save booking"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "18b1241c-30e6-5ad2-82c3-a179caa1a41a",
+      "name": "Retry parse (02)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        220,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "toriDispatchJobs",
+          "mode": "list",
+          "cachedResultName": "Tori 03 · Dispatch calendar + WhatsApp"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "5cd1b553-17dc-550b-b1cc-2c4bdf2005ed",
+      "name": "Send alerts (03)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        100
+      ]
+    }
+  ],
+  "connections": {
+    "Every minute": {
+      "main": [
+        [
+          {
+            "node": "Check venues + stuck emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check venues + stuck emails": {
+      "main": [
+        [
+          {
+            "node": "Emails to retry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send alerts (03)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emails to retry": {
+      "main": [
+        [
+          {
+            "node": "Retry parse (02)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Asia/Kolkata"
+  },
+  "pinData": {},
+  "tags": [],
+  "active": false
+}

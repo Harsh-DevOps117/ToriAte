@@ -1,0 +1,52 @@
+{
+  "_fixture": "Playo email that is not a booking -> ignored",
+  "FromName": "Playo",
+  "MessageStream": "inbound",
+  "From": "bookings@playo.co",
+  "FromFull": {
+    "Email": "bookings@playo.co",
+    "Name": "Playo",
+    "MailboxHash": ""
+  },
+  "To": "owner.smasharena@gmail.com",
+  "ToFull": [
+    {
+      "Email": "owner.smasharena@gmail.com",
+      "Name": "",
+      "MailboxHash": ""
+    }
+  ],
+  "Cc": "",
+  "CcFull": [],
+  "Bcc": "",
+  "BccFull": [],
+  "OriginalRecipient": "smash-arena-demo0001@in.toridesk.com",
+  "Subject": "Your weekly Playo payout summary",
+  "MessageID": "{{PMID}}",
+  "ReplyTo": "",
+  "MailboxHash": "",
+  "Date": "{{NOW_RFC}}",
+  "TextBody": "Hi Smash Arena,\n\nYour payout of ₹12,400 for last week has been processed.\n\nTeam Playo",
+  "HtmlBody": "",
+  "StrippedTextReply": "",
+  "Tag": "",
+  "Headers": [
+    {
+      "Name": "X-Forwarded-For",
+      "Value": "owner.smasharena@gmail.com smash-arena-demo0001@in.toridesk.com"
+    },
+    {
+      "Name": "X-Forwarded-To",
+      "Value": "smash-arena-demo0001@in.toridesk.com"
+    },
+    {
+      "Name": "Message-ID",
+      "Value": "{{MSGID}}"
+    },
+    {
+      "Name": "Date",
+      "Value": "{{NOW_RFC}}"
+    }
+  ],
+  "Attachments": []
+}

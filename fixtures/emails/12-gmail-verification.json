@@ -1,0 +1,44 @@
+{
+  "_fixture": "Onboarding step B2: code goes to Ravi on WhatsApp",
+  "FromName": "Gmail Team",
+  "MessageStream": "inbound",
+  "From": "forwarding-noreply@google.com",
+  "FromFull": {
+    "Email": "forwarding-noreply@google.com",
+    "Name": "Gmail Team",
+    "MailboxHash": ""
+  },
+  "To": "owner.smasharena@gmail.com",
+  "ToFull": [
+    {
+      "Email": "owner.smasharena@gmail.com",
+      "Name": "",
+      "MailboxHash": ""
+    }
+  ],
+  "Cc": "",
+  "CcFull": [],
+  "Bcc": "",
+  "BccFull": [],
+  "OriginalRecipient": "smash-arena-demo0001@in.toridesk.com",
+  "Subject": "(#583920147) Gmail Forwarding Confirmation - Receive Mail from owner.smasharena@gmail.com",
+  "MessageID": "{{PMID}}",
+  "ReplyTo": "",
+  "MailboxHash": "",
+  "Date": "{{NOW_RFC}}",
+  "TextBody": "owner.smasharena@gmail.com has requested to automatically forward mail to your email address\nsmash-arena-demo0001@in.toridesk.com.\n\nConfirmation code: 583920147\n\nTo allow owner.smasharena@gmail.com to automatically forward mail to your address, please click the link below to confirm the request: https://mail-settings.google.com/mail/vf-%5B...%5D\n",
+  "HtmlBody": "",
+  "StrippedTextReply": "",
+  "Tag": "",
+  "Headers": [
+    {
+      "Name": "Message-ID",
+      "Value": "{{MSGID}}"
+    },
+    {
+      "Name": "Date",
+      "Value": "{{NOW_RFC}}"
+    }
+  ],
+  "Attachments": []
+}

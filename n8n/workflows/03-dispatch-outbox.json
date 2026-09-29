@@ -1,0 +1,300 @@
+{
+  "id": "toriDispatchJobs",
+  "name": "Tori 03 · Dispatch calendar + WhatsApp",
+  "description": "Executes outbox jobs written by the booking transaction: Google Calendar create/update/delete and WhatsApp messages. Runs every 30 s (retries) and whenever 01/02/04/05 call it.",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 03 · Dispatch calendar + WhatsApp\n`tori.claim_jobs()` leases due jobs (SKIP LOCKED, safe to run in parallel) and says what to do from the **current** booking state.\n\n- Calendar: deterministic event IDs → retries never duplicate. Create → 409 → overwrite. Delete → 404/410 = already gone.\n- WhatsApp: text (dev) or approved templates (prod).\n\n`tori.complete_job()` retries with backoff, alerts Ravi on 403/404 and dead jobs.",
+        "height": 260,
+        "width": 600,
+        "color": 7
+      },
+      "id": "f1bcf655-7f52-5cf7-80da-49786697c6e9",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "936a7c97-6107-51ad-b2b9-ecc0845c82a7",
+      "name": "Every 30 seconds",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -440,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "c8ad3f6f-6dfe-5455-81ff-6bd604bba88d",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -440,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT job FROM tori.claim_jobs(25) AS job;",
+        "options": {}
+      },
+      "id": "2a84b118-70be-5447-aa37-c796664fceff",
+      "name": "Claim due jobs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -200,
+        40
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "toriPostgres0001",
+          "name": "Tori DB"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.job.channel === 'gcal' ? 0 : 1 }}"
+      },
+      "id": "314cafcc-b371-549e-983f-59b0955c7dbb",
+      "name": "Channel",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        20,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Service-account JWT -> access token (once per run), then one call per job.\n// Plain Code node because n8n's Google credential can't target the local mock.\nconst crypto = require('crypto');\nconst tokenUri = $env.GOOGLE_TOKEN_URI || 'https://oauth2.googleapis.com/token';\nconst base = ($env.GCAL_BASE_URL || 'https://www.googleapis.com/calendar/v3').replace(/\\/+$/, '');\nconst helpers = this.helpers;\nconst http = (opts) => helpers.httpRequest({\n  json: true, returnFullResponse: true, ignoreHttpStatusErrors: true, timeout: 20000, ...opts,\n});\n\nfunction serviceAccount() {\n  if ($env.GOOGLE_SERVICE_ACCOUNT_JSON_B64) {\n    return JSON.parse(Buffer.from($env.GOOGLE_SERVICE_ACCOUNT_JSON_B64, 'base64').toString('utf8'));\n  }\n  // Local mock only: a throwaway key. Real Google rejects it.\n  const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });\n  return {\n    client_email: 'tori-calendar@mock.iam.gserviceaccount.com',\n    private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }),\n  };\n}\n\nasync function accessToken() {\n  const sa = serviceAccount();\n  const now = Math.floor(Date.now() / 1000);\n  const enc = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');\n  const unsigned = enc({ alg: 'RS256', typ: 'JWT' }) + '.' + enc({\n    iss: sa.client_email,\n    scope: 'https://www.googleapis.com/auth/calendar.events',\n    aud: tokenUri,\n    iat: now,\n    exp: now + 3600,\n  });\n  const signature = crypto.createSign('RSA-SHA256').update(unsigned).sign(sa.private_key).toString('base64url');\n  const res = await http({\n    method: 'POST',\n    url: tokenUri,\n    json: false,\n    headers: { 'content-type': 'application/x-www-form-urlencoded' },\n    body: `grant_type=${encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer')}&assertion=${unsigned}.${signature}`,\n  });\n  const body = typeof res.body === 'string' ? JSON.parse(res.body || '{}') : res.body;\n  if (res.statusCode !== 200 || !body.access_token) {\n    throw new Error(`token endpoint HTTP ${res.statusCode}: ${JSON.stringify(body).slice(0, 300)}`);\n  }\n  return body.access_token;\n}\n\nconst errorText = (body) => (body && body.error && (body.error.message || body.error)) || JSON.stringify(body || '').slice(0, 300);\n\nlet token;\nlet tokenError;\ntry {\n  token = await accessToken();\n} catch (e) {\n  tokenError = e.message;\n}\n\nconst out = [];\nfor (const [index, item] of $input.all().entries()) {\n  const job = item.json.job;\n  const done = (result) => out.push({ json: { job_id: job.job_id, result }, pairedItem: { item: index } });\n  if (!token) {\n    done({ ok: false, retryable: true, error: `Google auth failed: ${tokenError}` });\n    continue;\n  }\n  const events = `${base}/calendars/${encodeURIComponent(job.calendar_id)}/events`;\n  const headers = { Authorization: `Bearer ${token}` };\n  try {\n    let res;\n    let ok;\n    if (job.action === 'upsert') {\n      res = await http({ method: 'POST', url: events, headers, body: job.event });\n      if (res.statusCode === 409) {\n        // Event ID already used (retry, update, or deleted earlier): overwrite, which also restores it.\n        res = await http({ method: 'PUT', url: `${events}/${encodeURIComponent(job.event_id)}`, headers, body: job.event });\n      }\n      ok = res.statusCode === 200;\n    } else {\n      res = await http({ method: 'DELETE', url: `${events}/${encodeURIComponent(job.event_id)}`, headers });\n      ok = [200, 204, 404, 410].includes(res.statusCode); // already gone is fine\n    }\n    const body = res.body && typeof res.body === 'object' ? res.body : {};\n    done({\n      ok,\n      status: res.statusCode,\n      body: ok ? { id: body.id, status: body.status, htmlLink: body.htmlLink } : body,\n      error: ok ? null : errorText(res.body),\n    });\n  } catch (e) {\n    done({ ok: false, retryable: true, error: e.message });\n  }\n}\nreturn out;\n"
+      },
+      "id": "e029fe60-36f9-520f-a562-66ef286b3205",
+      "name": "Google Calendar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// text: free-form (works in dev, or inside Meta's 24 h window)\n// template: pre-approved template tori_<event> with the same params (production)\nconst job = $json.job;\nconst base = String($env.WHATSAPP_BASE_URL || 'https://graph.facebook.com/v21.0').replace(/\\/+$/, '');\nconst oneLine = (s) => String(s == null ? '' : s).replace(/\\s+/g, ' ').trim().slice(0, 1000);\nconst to = String(job.to).replace(/\\D/g, '');\n\nconst body = ($env.WHATSAPP_MODE || 'text') === 'template'\n  ? {\n      messaging_product: 'whatsapp',\n      to,\n      type: 'template',\n      template: {\n        name: `tori_${job.event}`,\n        language: { code: $env.WHATSAPP_TEMPLATE_LANG || 'en' },\n        components: [{ type: 'body', parameters: (job.params || []).map((p) => ({ type: 'text', text: oneLine(p) })) }],\n      },\n    }\n  : { messaging_product: 'whatsapp', recipient_type: 'individual', to, type: 'text', text: { preview_url: false, body: job.text } };\n\nreturn { json: { job_id: job.job_id, url: `${base}/${$env.WHATSAPP_PHONE_NUMBER_ID}/messages`, body } };\n"
+      },
+      "id": "809fccf1-4478-58d5-b4b1-acf572bcf893",
+      "name": "Build WhatsApp message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "ca5f246d-4af8-5bbf-9014-6249a5d1ee3d",
+      "name": "WhatsApp · send",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        140
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "toriWhatsAppTokn",
+          "name": "WhatsApp Cloud API token"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const req = $('Build WhatsApp message').item.json;\nconst status = $json.statusCode;\nconst body = $json.body || {};\nif (status === undefined) {\n  return { json: { job_id: req.job_id, result: { ok: false, retryable: true, error: `network: ${($json.error && $json.error.message) || 'no response'}` } } };\n}\nconst ok = status >= 200 && status < 300;\nreturn {\n  json: {\n    job_id: req.job_id,\n    result: {\n      ok,\n      status,\n      // 4xx = bad number / template not approved: retrying won't help\n      retryable: status === 429 || status >= 500,\n      body: ok ? { message_id: body.messages && body.messages[0] && body.messages[0].id } : body,\n      error: ok ? null : (body.error && body.error.message) || `HTTP ${status}`,\n    },\n  },\n};\n"
+      },
+      "id": "b3b2b380-1b07-5eac-802d-a11a189ef008",
+      "name": "Check WhatsApp answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT tori.complete_job($1::bigint, $2::jsonb) AS result;",
+        "options": {
+          "queryReplacement": "={{ [ $json.job_id, $json.result ] }}"
+        }
+      },
+      "id": "ccb711f9-95a4-506b-a3d3-fc665a2fd342",
+      "name": "Complete job",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        940,
+        40
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "toriPostgres0001",
+          "name": "Tori DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 30 seconds": {
+      "main": [
+        [
+          {
+            "node": "Claim due jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "Claim due jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim due jobs": {
+      "main": [
+        [
+          {
+            "node": "Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Channel": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build WhatsApp message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build WhatsApp message": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp · send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp · send": {
+      "main": [
+        [
+          {
+            "node": "Check WhatsApp answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar": {
+      "main": [
+        [
+          {
+            "node": "Complete job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check WhatsApp answer": {
+      "main": [
+        [
+          {
+            "node": "Complete job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Asia/Kolkata"
+  },
+  "pinData": {},
+  "tags": [],
+  "active": false
+}

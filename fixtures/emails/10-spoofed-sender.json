@@ -1,0 +1,52 @@
+{
+  "_fixture": "Sender is not Playo -> rejected + alert",
+  "FromName": "Playo Offers",
+  "MessageStream": "inbound",
+  "From": "bookings@playo-offers.com",
+  "FromFull": {
+    "Email": "bookings@playo-offers.com",
+    "Name": "Playo Offers",
+    "MailboxHash": ""
+  },
+  "To": "owner.smasharena@gmail.com",
+  "ToFull": [
+    {
+      "Email": "owner.smasharena@gmail.com",
+      "Name": "",
+      "MailboxHash": ""
+    }
+  ],
+  "Cc": "",
+  "CcFull": [],
+  "Bcc": "",
+  "BccFull": [],
+  "OriginalRecipient": "smash-arena-demo0001@in.toridesk.com",
+  "Subject": "Booking Confirmed - Smash Arena | Booking ID: PLY-FAKE01",
+  "MessageID": "{{PMID}}",
+  "ReplyTo": "",
+  "MailboxHash": "",
+  "Date": "{{NOW_RFC}}",
+  "TextBody": "Hi Smash Arena,\n\nYou have received a new booking on Playo.\n\nBooking ID: PLY-FAKE01\nCustomer Name: Mallory\nPhone: +91 90000 12345\nSport: Badminton\nVenue: Smash Arena\n\nCourt: Court 1\nDate: {{DATE1}}\nTime: 06:00 AM - 07:00 AM\n\nAmount: ₹1.00\nPayment Status: Paid\n\nTeam Playo\nThis is an automated email. Please do not reply.",
+  "HtmlBody": "",
+  "StrippedTextReply": "",
+  "Tag": "",
+  "Headers": [
+    {
+      "Name": "X-Forwarded-For",
+      "Value": "owner.smasharena@gmail.com smash-arena-demo0001@in.toridesk.com"
+    },
+    {
+      "Name": "X-Forwarded-To",
+      "Value": "smash-arena-demo0001@in.toridesk.com"
+    },
+    {
+      "Name": "Message-ID",
+      "Value": "{{MSGID}}"
+    },
+    {
+      "Name": "Date",
+      "Value": "{{NOW_RFC}}"
+    }
+  ],
+  "Attachments": []
+}

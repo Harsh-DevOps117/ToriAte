@@ -1,0 +1,52 @@
+{
+  "_fixture": "Cancellation arrives before its booking",
+  "FromName": "Playo",
+  "MessageStream": "inbound",
+  "From": "bookings@playo.co",
+  "FromFull": {
+    "Email": "bookings@playo.co",
+    "Name": "Playo",
+    "MailboxHash": ""
+  },
+  "To": "owner.smasharena@gmail.com",
+  "ToFull": [
+    {
+      "Email": "owner.smasharena@gmail.com",
+      "Name": "",
+      "MailboxHash": ""
+    }
+  ],
+  "Cc": "",
+  "CcFull": [],
+  "Bcc": "",
+  "BccFull": [],
+  "OriginalRecipient": "smash-arena-demo0001@in.toridesk.com",
+  "Subject": "Booking Cancelled - Smash Arena | Booking ID: PLY-4L0Z8W",
+  "MessageID": "{{PMID}}",
+  "ReplyTo": "",
+  "MailboxHash": "",
+  "Date": "{{NOW_RFC}}",
+  "TextBody": "Hi Smash Arena,\n\nThe following booking has been cancelled by the customer.\n\nBooking ID: PLY-4L0Z8W\nCustomer Name: Divya Menon\nPhone: +91 94444 33333\nSport: Badminton\nVenue: Smash Arena\n\n\nTeam Playo\nThis is an automated email. Please do not reply.",
+  "HtmlBody": "",
+  "StrippedTextReply": "",
+  "Tag": "",
+  "Headers": [
+    {
+      "Name": "X-Forwarded-For",
+      "Value": "owner.smasharena@gmail.com smash-arena-demo0001@in.toridesk.com"
+    },
+    {
+      "Name": "X-Forwarded-To",
+      "Value": "smash-arena-demo0001@in.toridesk.com"
+    },
+    {
+      "Name": "Message-ID",
+      "Value": "{{MSGID}}"
+    },
+    {
+      "Name": "Date",
+      "Value": "{{NOW_RFC}}"
+    }
+  ],
+  "Attachments": []
+}
