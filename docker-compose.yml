@@ -14,12 +14,10 @@ x-n8n-env: &n8n-env
   N8N_SECURE_COOKIE: "false"
   N8N_DIAGNOSTICS_ENABLED: "false"
   N8N_PERSONALIZATION_ENABLED: "false"
-  # Code nodes read integration settings from env and sign the Google JWT with crypto
   N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
   NODE_FUNCTION_ALLOW_BUILTIN: crypto
   EXECUTIONS_DATA_PRUNE: "true"
   EXECUTIONS_DATA_MAX_AGE: "336"
-  # integration settings used by the workflows ($env.*)
   LLM_BASE_URL: ${LLM_BASE_URL}
   LLM_MODEL: ${LLM_MODEL}
   GOOGLE_TOKEN_URI: ${GOOGLE_TOKEN_URI}

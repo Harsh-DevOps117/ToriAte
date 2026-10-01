@@ -1,4 +1,3 @@
--- Local demo data (SEED_DEV=1). Idempotent.
 INSERT INTO tori.staff (id, name, whatsapp, email, copy_bookings, is_ops_default)
 VALUES (1, 'Ravi', '+91 90000 00099', 'ravi@toridesk.com', true, true)
 ON CONFLICT (id) DO NOTHING;
@@ -11,7 +10,6 @@ INSERT INTO tori.venue (id, tenant_id, slug, name, inbound_address, owner_gmail,
                         opens_at, closes_at, status, calendar_status)
 VALUES (1, 1, 'smash-arena', 'Smash Arena', 'smash-arena-demo0001@in.toridesk.com', 'owner.smasharena@gmail.com',
         'smasharena-bookings@group.calendar.google.com', '06:00', '23:00', 'live', 'unknown'),
-       -- still onboarding: no calendar shared yet
        (2, 1, 'smash-arena-2', 'Smash Arena Annexe', 'smash-arena-2-demo0002@in.toridesk.com', NULL, NULL,
         '06:00', '01:00', 'onboarding', 'unknown')
 ON CONFLICT (id) DO NOTHING;

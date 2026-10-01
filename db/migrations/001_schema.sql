@@ -1,8 +1,6 @@
--- Tori Desk step 1: Playo email -> Postgres -> Google Calendar + WhatsApp
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 CREATE SCHEMA IF NOT EXISTS tori;
 
--- Business settings that ops can change without a deploy.
 CREATE TABLE tori.setting (
   key   text PRIMARY KEY,
   value text NOT NULL,
@@ -18,19 +16,17 @@ INSERT INTO tori.setting (key, value, note) VALUES
   ('review_past_days', '2', 'slot starting more than N days before the email arrived is flagged'),
   ('review_future_days', '180', 'slot starting more than N days after the email arrived is flagged');
 
--- Tori people (Ravi): receive ops alerts for their tenants.
 CREATE TABLE tori.staff (
   id             bigserial PRIMARY KEY,
   name           text NOT NULL,
   whatsapp       text,
   email          text,
-  copy_bookings  boolean NOT NULL DEFAULT true,   -- pilot: see every booking the owner sees
-  is_ops_default boolean NOT NULL DEFAULT false,  -- gets alerts that belong to no tenant
+  copy_bookings  boolean NOT NULL DEFAULT true,
+  is_ops_default boolean NOT NULL DEFAULT false,
   active         boolean NOT NULL DEFAULT true,
   created_at     timestamptz NOT NULL DEFAULT now()
 );
 
--- The customer business. Owner gets booking cards on WhatsApp.
 CREATE TABLE tori.tenant (
   id                 bigserial PRIMARY KEY,
   name               text NOT NULL,
@@ -48,11 +44,11 @@ CREATE TABLE tori.venue (
   slug                text NOT NULL UNIQUE,
   name                text NOT NULL,
   inbound_address     text NOT NULL UNIQUE CHECK (inbound_address = lower(inbound_address)),
-  owner_gmail         text,             -- Gmail that forwards; checked against X-Forwarded-For
-  calendar_id         text,             -- ...@group.calendar.google.com; NULL until the owner shares it
+  owner_gmail         text,
+  calendar_id         text,
   timezone            text NOT NULL DEFAULT 'Asia/Kolkata',
   opens_at            time,
-  closes_at           time,             -- <= opens_at means it closes after midnight
+  closes_at           time,
   status              text NOT NULL DEFAULT 'onboarding' CHECK (status IN ('onboarding', 'live', 'paused')),
   calendar_status     text NOT NULL DEFAULT 'unknown' CHECK (calendar_status IN ('unknown', 'ok', 'error')),
   quiet_alert_hours   int NOT NULL DEFAULT 24,
@@ -63,7 +59,6 @@ CREATE TABLE tori.venue (
   updated_at          timestamptz NOT NULL DEFAULT now()
 );
 
--- Court names exactly as Playo writes them, plus aliases seen in real emails.
 CREATE TABLE tori.court (
   id           bigserial PRIMARY KEY,
   venue_id     bigint NOT NULL REFERENCES tori.venue (id),
@@ -75,7 +70,6 @@ CREATE TABLE tori.court (
   UNIQUE (venue_id, playo_name)
 );
 
--- Every inbound email, kept verbatim.
 CREATE TABLE tori.raw_message (
   id                  bigserial PRIMARY KEY,
   provider            text NOT NULL DEFAULT 'postmark',
@@ -91,7 +85,7 @@ CREATE TABLE tori.raw_message (
   html_body           text,
   headers             jsonb NOT NULL DEFAULT '{}',
   payload             jsonb NOT NULL,
-  email_date          timestamptz,      -- Date header: when Playo sent it (latency metric)
+  email_date          timestamptz,
   received_at         timestamptz NOT NULL DEFAULT now(),
   kind                text NOT NULL CHECK (kind IN ('playo', 'playo_manual_forward', 'gmail_verification', 'other')),
   status              text NOT NULL DEFAULT 'received'
@@ -125,20 +119,19 @@ CREATE TABLE tori.booking (
   UNIQUE (venue_id, playo_booking_id)
 );
 
--- One row per court per continuous time range. One calendar event each.
 CREATE TABLE tori.booking_slot (
   id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   booking_id         uuid NOT NULL REFERENCES tori.booking (id),
   venue_id           bigint NOT NULL REFERENCES tori.venue (id),
-  court_id           bigint REFERENCES tori.court (id),   -- NULL = court name not recognised
-  court_label        text NOT NULL,                       -- as written in the email
-  court_key          text NOT NULL,                       -- normalised, for matching
+  court_id           bigint REFERENCES tori.court (id),
+  court_label        text NOT NULL,
+  court_key          text NOT NULL,
   starts_at          timestamptz NOT NULL,
   ends_at            timestamptz NOT NULL,
   status             text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cancelled')),
   review_reasons     text[] NOT NULL DEFAULT '{}',
   clash_with         uuid[] NOT NULL DEFAULT '{}',
-  gcal_event_id      text NOT NULL UNIQUE,                -- deterministic: retries never duplicate
+  gcal_event_id      text NOT NULL UNIQUE,
   calendar_state     text NOT NULL DEFAULT 'pending' CHECK (calendar_state IN ('pending', 'synced', 'deleted')),
   calendar_html_link text,
   calendar_synced_at timestamptz,
@@ -153,7 +146,6 @@ CREATE INDEX booking_slot_overlap ON tori.booking_slot
   USING gist (court_id, tstzrange(starts_at, ends_at)) WHERE status = 'active';
 CREATE INDEX booking_slot_booking ON tori.booking_slot (booking_id);
 
--- "Check Playo email" notes for emails Tori could not read.
 CREATE TABLE tori.calendar_note (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   venue_id       bigint NOT NULL REFERENCES tori.venue (id),
@@ -182,13 +174,11 @@ CREATE TABLE tori.alert (
   acknowledged_by text
 );
 
--- Transactional outbox: written in the same transaction as the booking,
--- executed afterwards by the dispatcher workflow.
 CREATE TABLE tori.outbox (
   id              bigserial PRIMARY KEY,
   kind            text NOT NULL CHECK (kind IN ('calendar.sync_slot', 'calendar.note', 'calendar.test', 'whatsapp.send')),
   venue_id        bigint REFERENCES tori.venue (id),
-  ref             text,                 -- slot / note id for calendar jobs
+  ref             text,
   payload         jsonb NOT NULL DEFAULT '{}',
   dedupe_key      text UNIQUE,
   status          text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'done', 'failed', 'dead')),
@@ -205,6 +195,5 @@ CREATE TABLE tori.outbox (
   done_at         timestamptz
 );
 CREATE INDEX outbox_due ON tori.outbox (next_attempt_at) WHERE status IN ('pending', 'running');
--- A calendar object has at most one waiting job; it always syncs the latest state.
 CREATE UNIQUE INDEX outbox_one_pending_per_ref ON tori.outbox (kind, ref)
   WHERE status = 'pending' AND ref IS NOT NULL;

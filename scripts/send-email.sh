@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Post a fixture to the inbound webhook exactly like Postmark would.
-#   scripts/send-email.sh fixtures/emails/01-booking-new.json
-# Placeholders: {{DATE1}} = tomorrow, {{DATE2}} = day after, {{MSGID}}/{{PMID}} unique per send
-# (set MSGID=... to resend the "same" email), {{NOW_RFC}} = now.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; . ./.env; set +a

@@ -1,4 +1,3 @@
-// Creates the n8n owner account from .env on first start (no-op afterwards).
 const base = 'http://n8n:5678';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

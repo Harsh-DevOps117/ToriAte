@@ -1,4 +1,3 @@
-# Secrets: .env holds the Groq key, DB passwords, WhatsApp token
 .env
 .env.*
 !.env.example
@@ -6,15 +5,21 @@ secrets/
 *.key.json
 *service-account*.json
 *.pem
+*.p12
+*-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f].json
+client_secret*.json
 
-# n8n local state, if ever run outside Docker
+.cloudflared/
+
+*.bak
+
+.claude/settings.local.json
+
 .n8n/
 
-# Dependencies and logs
 node_modules/
 *.log
 
-# Editors / OS
 .vscode/
 .idea/
 *.swp

@@ -1,6 +1,4 @@
 #!/bin/sh
-# Applies db/migrations/*.sql in order, once each (tracked in tori_meta.migration).
-# Files named *.repeatable.sql are re-applied whenever their content changes (functions, views).
 set -eu
 export PGHOST=postgres PGUSER=tori_app PGDATABASE=tori PGPASSWORD="$TORI_DB_PASSWORD"
 until pg_isready -q; do sleep 1; done

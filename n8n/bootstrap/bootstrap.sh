@@ -1,6 +1,4 @@
 #!/bin/sh
-# One-shot, before n8n starts: credentials from .env, then import + publish every workflow.
-# Safe to re-run: imports overwrite by id.
 set -eu
 DIR=/opt/tori/n8n
 TMP=$(mktemp -d)

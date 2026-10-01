@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# End-to-end test against the running stack (mock profile). WIPES tori booking data.
-#   scripts/e2e.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."
 set -a; . ./.env; set +a
@@ -10,17 +8,17 @@ MOCK=http://localhost:8090
 N8N=http://localhost:5678
 pass=0; fail=0
 REAL_LLM=0; [[ "$LLM_BASE_URL" == *mock-apis* ]] || REAL_LLM=1
-SETTLE_SECONDS=$([ $REAL_LLM = 1 ] && echo 300 || echo 60)   # Groq free tier: 8k tokens/min
+SETTLE_SECONDS=$([ $REAL_LLM = 1 ] && echo 300 || echo 60)
 
 sql() { docker compose exec -T postgres psql -U tori_app -d tori -tAq -c "$1"; }
 send() { scripts/send-email.sh "$@" >/dev/null; }
 admin() { curl -sS -H "X-Tori-Admin-Key: $ADMIN_API_KEY" -H 'content-type: application/json' -d "$2" "$N8N/webhook/admin/$1"; }
 mock() { curl -sS "$MOCK/_state"; }
-check() { # check "<description>" "<actual>" "<expected>"
+check() {
   if [ "$2" == "$3" ]; then pass=$((pass + 1)); echo "  ok   $1"
   else fail=$((fail + 1)); echo "  FAIL $1"; echo "       expected: $3"; echo "       actual:   $2"; fi
 }
-settle() { # wait until parser + due outbox jobs are drained
+settle() {
   for _ in $(seq 1 "$SETTLE_SECONDS"); do
     busy=$(sql "SELECT (SELECT count(*) FROM tori.raw_message WHERE status = 'pending_parse')
                      + (SELECT count(*) FROM tori.outbox o JOIN tori.venue v ON v.id = o.venue_id
@@ -39,7 +37,6 @@ wa_count() { mock | python3 -c "
 import json,sys; s=json.load(sys.stdin); print(sum(1 for m in s['whatsapp'] if m['to']=='$1' and '$2' in m['text']))"; }
 
 for _ in $(seq 1 60); do curl -sf "$N8N/healthz" >/dev/null && break; sleep 2; done
-# n8n serves previously published versions for a few seconds after a restart
 up=$(docker inspect -f '{{.State.StartedAt}}' "$(docker compose ps -q n8n)")
 age=$(( $(date +%s) - $(date -d "$up" +%s) ))
 [ "$age" -lt 40 ] && { echo "(n8n just started, waiting $((40 - age))s)"; sleep $((40 - age)); }
@@ -133,7 +130,7 @@ slot_job="SELECT o.status || '/' || o.last_status FROM tori.outbox o JOIN tori.b
           JOIN tori.booking b ON b.id = s.booking_id WHERE b.playo_booking_id = 'PLY-1R2E3T' ORDER BY o.id DESC LIMIT 1"
 for _ in $(seq 1 "$SETTLE_SECONDS"); do [ -n "$(sql "$slot_job")" ] && break; sleep 1; done
 check "first attempt failed" "$(sql "$slot_job")" "pending/503"
-sql "UPDATE tori.outbox SET next_attempt_at = now() WHERE status = 'pending'" >/dev/null   # skip the 1 min backoff
+sql "UPDATE tori.outbox SET next_attempt_at = now() WHERE status = 'pending'" >/dev/null
 for _ in $(seq 1 40); do [ -n "$(event_summary PLY-1R2E3T confirmed)" ] && break; sleep 1; done
 check "event created on retry" "$(event_summary PLY-1R2E3T confirmed)" "Court 1 · Playo · Meera J."
 

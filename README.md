@@ -71,14 +71,13 @@ SELECT tori.purge_raw_bodies(90);                 -- DPDP: drop email bodies aft
 ## Onboarding a venue (the PDF's per-venue steps)
 
 ```bash
-H="X-Tori-Admin-Key: $ADMIN_API_KEY"
-curl -H "$H" -d '{"tenant_name":"Ace Sports","owner_name":"…","owner_whatsapp":"+91…","account_manager_id":1,
+H="X-Tori-Admin-Key: $ADMIN_API_KEY"; J="content-type: application/json"
+curl -H "$H" -H "$J" -d '{"tenant_name":"Ace Sports","owner_name":"…","owner_whatsapp":"+91…","account_manager_id":1,
   "slug":"ace-courts","name":"Ace Courts","owner_gmail":"owner@gmail.com","opens_at":"06:00","closes_at":"23:00",
   "courts":["Court A","Court B"]}' localhost:5678/webhook/admin/venues      # → forwarding address
-# owner adds the address in Gmail → Ravi gets the code on WhatsApp → reads it out (B2)
 psql: UPDATE tori.venue SET calendar_id = '…@group.calendar.google.com' WHERE slug = 'ace-courts';
-curl -H "$H" -d '{"venue":"ace-courts","action":"create"}' localhost:5678/webhook/admin/calendar-test
-curl -H "$H" -d '{"venue":"ace-courts","action":"delete"}' localhost:5678/webhook/admin/calendar-test
+curl -H "$H" -H "$J" -d '{"venue":"ace-courts","action":"create"}' localhost:5678/webhook/admin/calendar-test
+curl -H "$H" -H "$J" -d '{"venue":"ace-courts","action":"delete"}' localhost:5678/webhook/admin/calendar-test
 psql: UPDATE tori.venue SET status = 'live' WHERE slug = 'ace-courts';   -- enables quiet alerts
 ```
 

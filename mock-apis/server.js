@@ -1,6 +1,3 @@
-// Dev-only stand-ins for Google OAuth + Calendar, WhatsApp Cloud API and Groq's
-// OpenAI-compatible chat API, so the n8n workflows run unchanged without real credentials.
-// Everything received is visible at http://localhost:8090 (dashboard) and /_state (JSON).
 'use strict';
 const http = require('http');
 const crypto = require('crypto');
@@ -12,7 +9,7 @@ function reset() {
   state = {
     tokens: new Set(),
     tokenRequests: 0,
-    calendars: {},          // calendarId -> Map(eventId -> event)
+    calendars: {},
     calendarCalls: [],
     whatsapp: [],
     llm: { requests: 0, last: null },
@@ -21,7 +18,6 @@ function reset() {
 }
 reset();
 
-// ---------------------------------------------------------------------------
 function send(res, status, body, headers = {}) {
   if (status === 204) {
     res.writeHead(204, headers);
@@ -62,9 +58,6 @@ function bearer(req) {
 
 const googleError = (code, message) => ({ error: { code, message, errors: [{ message, reason: String(code) }] } });
 
-// ---------------------------------------------------------------------------
-// Google OAuth (JWT bearer grant) + Calendar v3 events
-// ---------------------------------------------------------------------------
 function googleToken(req, res, raw) {
   const form = new URLSearchParams(raw);
   if (form.get('grant_type') !== 'urn:ietf:params:oauth:grant-type:jwt-bearer') {
@@ -158,9 +151,6 @@ async function googleCalendar(req, res, path, raw) {
   send(res, 405, googleError(405, 'Method not allowed'));
 }
 
-// ---------------------------------------------------------------------------
-// WhatsApp Cloud API: POST /{version}/{phone-number-id}/messages
-// ---------------------------------------------------------------------------
 function whatsapp(req, res, path, raw) {
   const m = path.match(/^\/whatsapp\/(v[\d.]+)\/(\d+)\/messages$/);
   if (!m || req.method !== 'POST') return send(res, 404, { error: { message: 'Unknown path', code: 100 } });
@@ -195,10 +185,6 @@ function whatsapp(req, res, path, raw) {
   send(res, 200, { messaging_product: 'whatsapp', contacts: [{ input: body.to, wa_id: body.to }], messages: [{ id }] });
 }
 
-// ---------------------------------------------------------------------------
-// LLM chat completion with a JSON schema. The "model" is a regex parser for
-// the fixture format in fixtures/emails. Real Playo emails need the real API.
-// ---------------------------------------------------------------------------
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 
 function to24h(t) {
@@ -283,9 +269,6 @@ function groq(req, res, path, raw) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Dashboard
-// ---------------------------------------------------------------------------
 function snapshot() {
   const calendars = {};
   for (const [id, events] of Object.entries(state.calendars)) {
@@ -330,7 +313,6 @@ document.getElementById('wa').innerHTML=w||'<p class="empty">No messages yet.</p
 load();setInterval(load,3000);
 </script></body></html>`;
 
-// ---------------------------------------------------------------------------
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const path = url.pathname;
