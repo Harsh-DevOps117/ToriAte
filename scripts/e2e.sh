@@ -31,7 +31,7 @@ settle() {
 }
 event_summary() { mock | python3 -c "
 import json,sys; s=json.load(sys.stdin)
-evs=[e for c in s['calendars'].values() for e in c if e.get('extendedProperties',{}).get('private',{}).get('playoBookingId')=='$1' and e['status']=='$2']
+evs=[e for c in s['calendars'].values() for e in c if e.get('extendedProperties',{}).get('private',{}).get('bookingId')=='$1' and e['status']=='$2']
 print(' | '.join(sorted(e['summary'] for e in evs)))"; }
 wa_count() { mock | python3 -c "
 import json,sys; s=json.load(sys.stdin); print(sum(1 for m in s['whatsapp'] if m['to']=='$1' and '$2' in m['text']))"; }
@@ -43,7 +43,7 @@ age=$(( $(date +%s) - $(date -d "$up" +%s) ))
 
 echo "== reset"
 sql "TRUNCATE tori.outbox, tori.alert, tori.calendar_note, tori.booking_slot, tori.booking, tori.raw_message RESTART IDENTITY CASCADE;
-     UPDATE tori.venue SET last_playo_email_at = NULL, forwarding_code = NULL, calendar_status = 'unknown';
+     UPDATE tori.venue SET last_booking_email_at = NULL, forwarding_code = NULL, calendar_status = 'unknown';
      UPDATE tori.venue SET calendar_id = NULL WHERE id = 2;
      DELETE FROM tori.court WHERE venue_id > 2; DELETE FROM tori.venue WHERE id > 2;" >/dev/null
 curl -sS -X POST "$MOCK/_reset" >/dev/null
@@ -51,11 +51,11 @@ OWNER=919000000001; RAVI=919000000099
 
 echo "== new booking"
 MSGID="<fixed-01@mail.playo.co>" PMID="pm-fixed-01" send $F/01-booking-new.json; settle
-check "booking stored" "$(sql "SELECT status FROM tori.booking WHERE playo_booking_id = 'PLY-8Q2K7M'")" "confirmed"
+check "booking stored" "$(sql "SELECT status FROM tori.booking WHERE source_booking_id = 'PLY-8Q2K7M'")" "confirmed"
 check "event in calendar" "$(event_summary PLY-8Q2K7M confirmed)" "Court 2 · Playo · Rahul S."
 check "owner got WhatsApp" "$(wa_count $OWNER 'New Playo booking')" "1"
 check "Ravi got a copy" "$(wa_count $RAVI 'New Playo booking')" "1"
-check "phone masked" "$(sql "SELECT customer_phone_masked FROM tori.booking WHERE playo_booking_id = 'PLY-8Q2K7M'")" "******3210"
+check "phone masked" "$(sql "SELECT customer_phone_masked FROM tori.booking WHERE source_booking_id = 'PLY-8Q2K7M'")" "******3210"
 
 echo "== duplicates"
 res=$(MSGID="<fixed-01@mail.playo.co>" PMID="pm-fixed-01" scripts/send-email.sh $F/01-booking-new.json)
@@ -67,7 +67,7 @@ check "still one event, one owner message" "$(event_summary PLY-8Q2K7M confirmed
 echo "== multi-court booking"
 send $F/02-booking-multi.json; settle
 check "two events" "$(event_summary PLY-5T1N4B confirmed)" "Court 1 · Playo · Neha K. | Court 3 · Playo · Neha K."
-check "pay at venue = unpaid" "$(sql "SELECT payment_status FROM tori.booking WHERE playo_booking_id = 'PLY-5T1N4B'")" "unpaid"
+check "pay at venue = unpaid" "$(sql "SELECT payment_status FROM tori.booking WHERE source_booking_id = 'PLY-5T1N4B'")" "unpaid"
 
 echo "== clash"
 send $F/03-booking-clash.json; settle
@@ -87,7 +87,7 @@ echo "== needs review"
 send $F/05-booking-unknown-court.json; send $F/06-booking-late-night.json; settle
 check "unknown court flagged" "$(event_summary PLY-7U6K1D confirmed)" "⚠️ CHECK · Court 9 · Playo · Vikram I."
 check "after-hours slot flagged" "$(event_summary PLY-3M8R6T confirmed)" "⚠️ CHECK · Court 1 · Playo · Sana K."
-check "midnight crossing" "$(sql "SELECT ends_at - starts_at FROM tori.booking_slot s JOIN tori.booking b ON b.id = s.booking_id WHERE playo_booking_id = 'PLY-3M8R6T'")" "01:00:00"
+check "midnight crossing" "$(sql "SELECT ends_at - starts_at FROM tori.booking_slot s JOIN tori.booking b ON b.id = s.booking_id WHERE source_booking_id = 'PLY-3M8R6T'")" "01:00:00"
 check "review alerts" "$(sql "SELECT count(*) FROM tori.alert WHERE kind = 'needs_review'")" "2"
 
 echo "== HTML-only email"
@@ -105,7 +105,7 @@ send $F/09-newsletter.json; send $F/10-spoofed-sender.json; send $F/11-wrong-for
 check "newsletter ignored" "$(sql "SELECT status FROM tori.raw_message WHERE subject LIKE 'Your weekly%'")" "ignored"
 check "spoofed sender rejected" "$(sql "SELECT status FROM tori.raw_message WHERE from_address = 'bookings@playo-offers.com'")" "rejected"
 check "wrong forwarder rejected" "$(sql "SELECT status FROM tori.raw_message WHERE subject LIKE '%PLY-6W4E2R'")" "rejected"
-check "no booking from either" "$(sql "SELECT count(*) FROM tori.booking WHERE playo_booking_id IN ('PLY-FAKE01', 'PLY-6W4E2R')")" "0"
+check "no booking from either" "$(sql "SELECT count(*) FROM tori.booking WHERE source_booking_id IN ('PLY-FAKE01', 'PLY-6W4E2R')")" "0"
 
 echo "== Gmail forwarding code (onboarding)"
 send $F/12-gmail-verification.json; settle
@@ -115,19 +115,34 @@ check "not sent to owner" "$(wa_count $OWNER '583920147')" "0"
 
 echo "== cancellation before booking"
 send $F/13-cancel-before-booking.json; settle; send $F/14-booking-after-cancel.json; settle
-check "stays cancelled" "$(sql "SELECT status FROM tori.booking WHERE playo_booking_id = 'PLY-4L0Z8W'")" "cancelled"
+check "stays cancelled" "$(sql "SELECT status FROM tori.booking WHERE source_booking_id = 'PLY-4L0Z8W'")" "cancelled"
 check "no event created" "$(event_summary PLY-4L0Z8W confirmed)" ""
 
 echo "== reschedule"
 send $F/15-reschedule-multi.json; settle
-check "only the new slot is live" "$(sql "SELECT string_agg(court || ' ' || to_char(s.starts_at AT TIME ZONE 'Asia/Kolkata', 'DD HH24:MI'), ',') FROM tori.v_bookings s WHERE playo_booking_id = 'PLY-5T1N4B' AND slot_status = 'active'")" "Court 1 $(TZ=Asia/Kolkata date -d '+2 day' +%d) 19:00"
+check "only the new slot is live" "$(sql "SELECT string_agg(court || ' ' || to_char(s.starts_at AT TIME ZONE 'Asia/Kolkata', 'DD HH24:MI'), ',') FROM tori.v_bookings s WHERE source_booking_id = 'PLY-5T1N4B' AND slot_status = 'active'")" "Court 1 $(TZ=Asia/Kolkata date -d '+2 day' +%d) 19:00"
 check "calendar matches" "$(event_summary PLY-5T1N4B confirmed)" "Court 1 · Playo · Neha K."
+
+echo "== District booking clashes with a Playo booking"
+send $F/18-district-booking-clash.json; settle
+check "stored as a District booking" "$(sql "SELECT source || '/' || status FROM tori.booking WHERE source_booking_id = 'DST-4821-77QK'")" "district/confirmed"
+check "District event marked CLASH" "$(event_summary DST-4821-77QK confirmed)" "⚠️ CLASH · Court 2 · District · Priya N."
+check "Playo event marked CLASH" "$(event_summary PLY-9C3X2Z confirmed)" "⚠️ CLASH · Court 2 · Playo · Arjun R."
+check "owner got District booking" "$(wa_count $OWNER 'New District booking')" "1"
+check "owner warned across platforms" "$(wa_count $OWNER 'Playo PLY-9C3X2Z (booked first)')" "1"
+
+echo "== District cancellation resolves the clash"
+send $F/19-district-cancel.json; settle
+check "District booking cancelled" "$(sql "SELECT status FROM tori.booking WHERE source_booking_id = 'DST-4821-77QK'")" "cancelled"
+check "District event deleted" "$(event_summary DST-4821-77QK confirmed)" ""
+check "Playo event no longer CLASH" "$(event_summary PLY-9C3X2Z confirmed)" "Court 2 · Playo · Arjun R."
+check "owner told" "$(wa_count $OWNER 'District booking cancelled')" "1"
 
 echo "== Google 503 is retried"
 curl -sS -X POST "$MOCK/_faults" -d '{"calendar_fail_next": 1}' >/dev/null
 send $F/16-booking-calendar-retry.json
 slot_job="SELECT o.status || '/' || o.last_status FROM tori.outbox o JOIN tori.booking_slot s ON s.id::text = o.ref
-          JOIN tori.booking b ON b.id = s.booking_id WHERE b.playo_booking_id = 'PLY-1R2E3T' ORDER BY o.id DESC LIMIT 1"
+          JOIN tori.booking b ON b.id = s.booking_id WHERE b.source_booking_id = 'PLY-1R2E3T' ORDER BY o.id DESC LIMIT 1"
 for _ in $(seq 1 "$SETTLE_SECONDS"); do [ -n "$(sql "$slot_job")" ] && break; sleep 1; done
 check "first attempt failed" "$(sql "$slot_job")" "pending/503"
 sql "UPDATE tori.outbox SET next_attempt_at = now() WHERE status = 'pending'" >/dev/null

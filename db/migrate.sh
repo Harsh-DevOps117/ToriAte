@@ -7,7 +7,8 @@ CREATE SCHEMA IF NOT EXISTS tori_meta;
 CREATE TABLE IF NOT EXISTS tori_meta.migration (
   name text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now());
 SQL
-for f in /migrations/*.sql; do
+# versioned migrations first, then the repeatable ones (functions, views), so they see the final schema
+for f in $(ls /migrations/*.sql | grep -v '\.repeatable\.sql$') /migrations/*.repeatable.sql; do
   name=$(basename "$f")
   sum=$(md5sum "$f" | cut -d' ' -f1)
   old=$(psql -tAq -c "SELECT checksum FROM tori_meta.migration WHERE name = '$name'")

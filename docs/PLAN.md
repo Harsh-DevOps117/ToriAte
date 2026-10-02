@@ -98,6 +98,19 @@ Open questions for the business side (defaults chosen, easy to change):
 - Does Ravi want a copy of every booking, or only alerts? Default: every booking during the pilot (`staff.copy_bookings`).
 - WhatsApp provider — built for Meta Cloud API; Interakt/Gupshup/Twilio need only the HTTP node changed.
 
+### Update 2026-10-02 — District as a second booking source
+
+District (by Zomato) emails go through the same pipeline as Playo emails. Each platform is a row in
+`tori.booking_source` with its own sender regex. `raw_message.source` and `booking.source` record the
+platform, and bookings are unique per `(venue, source, source_booking_id)`. Calendar titles,
+WhatsApp messages and the "Check … email" note name the platform. Clash detection is per court across
+platforms. This is the main reason to add District: a Playo booking and a District booking for the
+same court and hour are a real double booking. District's sender domain (`district.in`) and email
+format are guesses until a real email arrives. Migration `003_booking_sources.sql` renames
+`booking.playo_booking_id → source_booking_id`, `court.playo_name → name` and
+`venue.last_playo_email_at → last_booking_email_at`. `migrate.sh` now runs `*.repeatable.sql` after
+all versioned migrations.
+
 ## 3. Components (docker compose)
 
 | Service | Image | Purpose |

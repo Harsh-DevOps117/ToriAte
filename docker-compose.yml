@@ -26,6 +26,10 @@ x-n8n-env: &n8n-env
   WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID}
   WHATSAPP_MODE: ${WHATSAPP_MODE}
   WHATSAPP_TEMPLATE_LANG: ${WHATSAPP_TEMPLATE_LANG}
+  # workflow 06 (WhatsApp bot) reads these with $env
+  BOT_WHATSAPP_PHONE_NUMBER_ID: ${BOT_WHATSAPP_PHONE_NUMBER_ID:-}
+  BOT_WHATSAPP_TOKEN: ${BOT_WHATSAPP_TOKEN:-}
+  BOT_SUPABASE_SERVICE_KEY: ${BOT_SUPABASE_SERVICE_KEY:-}
 
 services:
   postgres:
@@ -94,6 +98,16 @@ services:
       ADMIN_API_KEY: ${ADMIN_API_KEY}
       LLM_API_KEY: ${LLM_API_KEY}
       WHATSAPP_TOKEN: ${WHATSAPP_TOKEN}
+      BOT_ENABLED: ${BOT_ENABLED:-0}
+      BOT_META_APP_ID: ${BOT_META_APP_ID:-}
+      BOT_META_APP_SECRET: ${BOT_META_APP_SECRET:-}
+      BOT_SUPABASE_URL: ${BOT_SUPABASE_URL:-}
+      BOT_PG_HOST: ${BOT_PG_HOST:-}
+      BOT_PG_PORT: ${BOT_PG_PORT:-}
+      BOT_PG_DATABASE: ${BOT_PG_DATABASE:-}
+      BOT_PG_USER: ${BOT_PG_USER:-}
+      BOT_PG_PASSWORD: ${BOT_PG_PASSWORD:-}
+      BOT_PG_SSL: ${BOT_PG_SSL:-}
     volumes:
       - n8ndata:/home/node/.n8n
       - ./n8n:/opt/tori/n8n:ro,z
@@ -134,6 +148,17 @@ services:
     volumes:
       - ./n8n/bootstrap/setup-owner.js:/setup-owner.js:ro,z
     entrypoint: ["node", "/setup-owner.js"]
+    depends_on:
+      n8n:
+        condition: service_healthy
+
+  # Public HTTPS address for n8n, so Meta can deliver WhatsApp messages to this laptop.
+  # Started by scripts/bot-tunnel.sh, which also puts the address into WEBHOOK_URL.
+  tunnel:
+    image: cloudflare/cloudflared:2026.9.3
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "--url", "http://n8n:5678"]
     depends_on:
       n8n:
         condition: service_healthy

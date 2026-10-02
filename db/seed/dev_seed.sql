@@ -14,12 +14,12 @@ VALUES (1, 1, 'smash-arena', 'Smash Arena', 'smash-arena-demo0001@in.toridesk.co
         '06:00', '01:00', 'onboarding', 'unknown')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO tori.court (venue_id, playo_name, display_name, aliases, sort) VALUES
+INSERT INTO tori.court (venue_id, name, display_name, aliases, sort) VALUES
   (1, 'Court 1', NULL, '{"Badminton Court 1"}', 1),
   (1, 'Court 2', NULL, '{"Badminton Court 2"}', 2),
   (1, 'Court 3', NULL, '{"Badminton Court 3"}', 3),
   (2, 'Turf A', NULL, '{}', 1)
-ON CONFLICT (venue_id, playo_name) DO NOTHING;
+ON CONFLICT (venue_id, name) DO NOTHING;
 
 DO $$ BEGIN
   PERFORM setval('tori.staff_id_seq', greatest((SELECT max(id) FROM tori.staff), 1));

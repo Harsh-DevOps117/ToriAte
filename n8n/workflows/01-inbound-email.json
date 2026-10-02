@@ -1,11 +1,11 @@
 {
   "id": "toriInboundEmail",
   "name": "Tori 01 · Inbound email",
-  "description": "Receives forwarded Playo emails from the inbound email provider (Postmark JSON), stores every email in Postgres, answers 200 and routes it.",
+  "description": "Receives forwarded booking emails (Playo, District) from the inbound email provider (Postmark JSON), stores every email in Postgres, answers 200 and routes it.",
   "nodes": [
     {
       "parameters": {
-        "content": "## 01 · Inbound email\nOwner Gmail filter → `<venue>-<token>@in.toridesk.com` → Postmark inbound → this webhook.\n\nEvery email is stored first (dedup on provider ID + Message-ID). Then:\n- Playo email → **02 Parse + save**\n- Gmail forwarding code → WhatsApp to Ravi (03)\n- anything else → stored, alert, stop",
+        "content": "## 01 · Inbound email\nOwner Gmail filter → `<venue>-<token>@in.toridesk.com` → Postmark inbound → this webhook.\n\nEvery email is stored first (dedup on provider ID + Message-ID). Then:\n- Playo / District email → **02 Parse + save**\n- Gmail forwarding code → WhatsApp to Ravi (03)\n- anything else → stored, alert, stop",
         "height": 220,
         "width": 520,
         "color": 7

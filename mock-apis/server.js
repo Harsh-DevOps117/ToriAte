@@ -214,22 +214,22 @@ function mockParse(subject, body) {
   else if (/booking confirmed|new booking/.test(lower)) email_type = 'booking_confirmed';
 
   const slots = [];
-  const re = /Court:\s*(.+)\r?\n\s*Date:\s*(.+)\r?\n\s*Time:\s*(.+)/g;
+  const re = /(?:Court|Facility):\s*(.+)\r?\n\s*Date:\s*(.+)\r?\n\s*(?:Time|Slot):\s*(.+)/g;
   let m;
   while ((m = re.exec(body))) {
     const [start, end] = m[3].split(/\s*[-–]\s*/);
     slots.push({ court: m[1].trim(), date: toIsoDate(m[2]), start_time: to24h(start), end_time: to24h(end) });
   }
-  const amount = get(/Amount[^:\n]*:\s*₹?\s*([\d,]+(?:\.\d+)?)/i);
+  const amount = get(/(?:Amount|Total)[^:\n]*:\s*₹?\s*([\d,]+(?:\.\d+)?)/i);
   const pay = (get(/Payment(?: Status)?:\s*([A-Za-z ]+)/i) || '').toLowerCase();
   return {
     email_type,
-    playo_booking_id: get(/Booking ID:\s*([A-Z0-9-]+)/i),
+    booking_id: get(/Booking (?:ID|Reference):\s*([A-Z0-9-]+)/i),
     customer_name: get(/Customer(?: Name)?:\s*(.+)/i),
-    customer_phone: get(/Phone:\s*(.+)/i),
+    customer_phone: get(/(?:Phone|Mobile):\s*(.+)/i),
     amount: amount ? Number(amount.replace(/,/g, '')) : null,
     payment_status: /partial/.test(pay) ? 'partially_paid' : /unpaid|pay at venue/.test(pay) ? 'unpaid' : /paid/.test(pay) ? 'paid' : 'unknown',
-    sport: get(/Sport:\s*(.+)/i),
+    sport: get(/(?:Sport|Activity):\s*(.+)/i),
     slots: slots.filter((s) => s.date && s.start_time && s.end_time),
     confidence: slots.length ? 'high' : 'low',
     notes: null,

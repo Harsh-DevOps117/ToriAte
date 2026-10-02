@@ -1,0 +1,52 @@
+{
+  "_fixture": "District booking overlaps Playo PLY-9C3X2Z on Court 2 (alias name) -> cross-platform CLASH",
+  "FromName": "District",
+  "MessageStream": "inbound",
+  "From": "noreply@district.in",
+  "FromFull": {
+    "Email": "noreply@district.in",
+    "Name": "District",
+    "MailboxHash": ""
+  },
+  "To": "owner.smasharena@gmail.com",
+  "ToFull": [
+    {
+      "Email": "owner.smasharena@gmail.com",
+      "Name": "",
+      "MailboxHash": ""
+    }
+  ],
+  "Cc": "",
+  "CcFull": [],
+  "Bcc": "",
+  "BccFull": [],
+  "OriginalRecipient": "smash-arena-demo0001@in.toridesk.com",
+  "Subject": "New booking at Smash Arena | Booking Reference: DST-4821-77QK",
+  "MessageID": "{{PMID}}",
+  "ReplyTo": "",
+  "MailboxHash": "",
+  "Date": "{{NOW_RFC}}",
+  "TextBody": "Hello Smash Arena team,\n\nYou have a new booking via District.\n\nBooking Reference: DST-4821-77QK\nCustomer: Priya Nair\nMobile: +91 99887 76655\nActivity: Badminton\n\nFacility: Badminton Court 2\nDate: {{DATE1}}\nSlot: 07:00 PM - 08:00 PM\n\nTotal: ₹900.00\nPayment: Paid online\n\nTeam District\nYou are receiving this because your venue is listed on District.",
+  "HtmlBody": "",
+  "StrippedTextReply": "",
+  "Tag": "",
+  "Headers": [
+    {
+      "Name": "X-Forwarded-For",
+      "Value": "owner.smasharena@gmail.com smash-arena-demo0001@in.toridesk.com"
+    },
+    {
+      "Name": "X-Forwarded-To",
+      "Value": "smash-arena-demo0001@in.toridesk.com"
+    },
+    {
+      "Name": "Message-ID",
+      "Value": "{{MSGID}}"
+    },
+    {
+      "Name": "Date",
+      "Value": "{{NOW_RFC}}"
+    }
+  ],
+  "Attachments": []
+}

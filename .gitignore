@@ -24,3 +24,6 @@ node_modules/
 .idea/
 *.swp
 .DS_Store
+
+# n8n exports of the WhatsApp bot workflow: they contain hardcoded API tokens
+plan/*.json

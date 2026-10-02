@@ -65,18 +65,28 @@ LANGUAGE sql STABLE AS $$
   exact AS (
     SELECT c.id FROM tori.court c, k
     WHERE c.venue_id = p_venue_id AND c.active AND k.key <> ''
-      AND (tori.court_key(c.playo_name) = k.key
+      AND (tori.court_key(c.name) = k.key
            OR tori.court_key(c.display_name) = k.key
            OR EXISTS (SELECT 1 FROM unnest(c.aliases) a WHERE tori.court_key(a) = k.key))
     ORDER BY c.id),
   suffix AS (
     SELECT c.id FROM tori.court c, k
     WHERE c.venue_id = p_venue_id AND c.active AND length(k.key) >= 2
-      AND (tori.court_key(c.playo_name) LIKE '%' || k.key OR k.key LIKE '%' || tori.court_key(c.playo_name)))
+      AND (tori.court_key(c.name) LIKE '%' || k.key OR k.key LIKE '%' || tori.court_key(c.name)))
   SELECT coalesce((SELECT id FROM exact LIMIT 1),
                   (SELECT min(id) FROM suffix HAVING count(*) = 1))
 $$;
 
+
+CREATE OR REPLACE FUNCTION tori.source_for_sender(p_from text) RETURNS text
+LANGUAGE sql STABLE AS $$
+  SELECT code FROM tori.booking_source WHERE lower(btrim(coalesce(p_from, ''))) ~ sender_regex ORDER BY code LIMIT 1
+$$;
+
+CREATE OR REPLACE FUNCTION tori.source_label(p_source text) RETURNS text
+LANGUAGE sql STABLE AS $$
+  SELECT coalesce((SELECT label FROM tori.booking_source WHERE code = p_source), p_source, 'Booking')
+$$;
 
 CREATE OR REPLACE FUNCTION tori.enqueue_calendar(p_kind text, p_venue_id bigint, p_ref text, p_payload jsonb DEFAULT '{}')
 RETURNS void LANGUAGE sql AS $$
@@ -206,6 +216,8 @@ DECLARE
   v_msgid text := nullif(btrim(p ->> 'message_id_header'), '');
   v_text text := coalesce(p ->> 'text_body', '');
   v_kind text;
+  v_source text;
+  v_label text;
   v_id bigint;
   v_code text;
   v_owner text;
@@ -217,13 +229,19 @@ BEGIN
     PERFORM pg_advisory_xact_lock(hashtext('raw:' || coalesce(v.id::text, '-') || ':' || v_msgid));
   END IF;
 
-  v_kind := CASE
-    WHEN v_from = lower(tori.cfg('gmail_verification_sender')) THEN 'gmail_verification'
-    WHEN v_from ~ tori.cfg('playo_sender_regex') THEN 'playo'
-    WHEN v.owner_gmail IS NOT NULL AND v_from = lower(v.owner_gmail)
-         AND v_text ~* tori.cfg('playo_forwarded_from_regex') THEN 'playo_manual_forward'
-    ELSE 'other'
-  END;
+  IF v_from = lower(tori.cfg('gmail_verification_sender')) THEN
+    v_kind := 'gmail_verification';
+  ELSE
+    v_source := tori.source_for_sender(v_from);
+    IF v_source IS NOT NULL THEN
+      v_kind := 'booking_email';
+    ELSIF v.owner_gmail IS NOT NULL AND v_from = lower(v.owner_gmail) THEN
+      SELECT code INTO v_source FROM tori.booking_source WHERE v_text ~* forwarded_from_regex ORDER BY code LIMIT 1;
+      v_kind := CASE WHEN v_source IS NOT NULL THEN 'manual_forward' END;
+    END IF;
+  END IF;
+  v_kind := coalesce(v_kind, 'other');
+  v_label := tori.source_label(v_source);
 
   BEGIN
     v_email_date := nullif(p ->> 'email_date', '')::timestamptz;
@@ -233,10 +251,10 @@ BEGIN
 
   INSERT INTO tori.raw_message (provider, provider_message_id, message_id_header, venue_id, inbound_address,
                                 from_address, from_name, forwarded_for, subject, text_body, html_body,
-                                headers, payload, email_date, kind)
+                                headers, payload, email_date, kind, source)
   VALUES (v_provider, coalesce(nullif(p ->> 'provider_message_id', ''), md5(p::text)), v_msgid, v.id, v_to,
           v_from, p ->> 'from_name', v_fwd, p ->> 'subject', p ->> 'text_body', p ->> 'html_body',
-          coalesce(p -> 'headers', '{}'), coalesce(p -> 'payload', p), v_email_date, v_kind)
+          coalesce(p -> 'headers', '{}'), coalesce(p -> 'payload', p), v_email_date, v_kind, v_source)
   ON CONFLICT (provider, provider_message_id) DO NOTHING
   RETURNING id INTO v_id;
 
@@ -282,30 +300,31 @@ BEGIN
   END IF;
 
   IF v_kind = 'other' THEN
-    UPDATE tori.raw_message SET status = 'rejected', status_reason = 'sender is not Playo', processed_at = now()
+    UPDATE tori.raw_message SET status = 'rejected', status_reason = 'sender is not a booking platform', processed_at = now()
      WHERE id = v_id;
-    PERFORM tori.raise_alert(v.id, 'non_playo_sender', 'warn',
-      'Email from ' || v_from || ' (not Playo) reached ' || v.name || '''s address and was ignored. '
-        || 'If Playo changed sender, update setting playo_sender_regex and reprocess email #' || v_id || '.',
+    PERFORM tori.raise_alert(v.id, 'unknown_sender', 'warn',
+      'Email from ' || v_from || ' (not ' || (SELECT string_agg(label, '/' ORDER BY label) FROM tori.booking_source)
+        || ') reached ' || v.name || '''s address and was ignored. '
+        || 'If a platform changed sender, update tori.booking_source.sender_regex and reprocess email #' || v_id || '.',
       jsonb_build_object('from', v_from, 'subject', p ->> 'subject'), v_id, NULL,
-      'non_playo:' || v.id || ':' || v_from || ':' || current_date);
-    RETURN jsonb_build_object('raw_id', v_id, 'action', 'ignore', 'reason', 'sender is not Playo');
+      'unknown_sender:' || v.id || ':' || v_from || ':' || current_date);
+    RETURN jsonb_build_object('raw_id', v_id, 'action', 'ignore', 'reason', 'sender is not a booking platform');
   END IF;
 
-  IF v_kind = 'playo' AND v.owner_gmail IS NOT NULL AND v_fwd IS NOT NULL
+  IF v_kind = 'booking_email' AND v.owner_gmail IS NOT NULL AND v_fwd IS NOT NULL
      AND position(lower(v.owner_gmail) IN v_fwd) = 0 THEN
     UPDATE tori.raw_message SET status = 'rejected', status_reason = 'forwarded by ' || v_fwd || ', expected ' || v.owner_gmail,
            processed_at = now() WHERE id = v_id;
     PERFORM tori.raise_alert(v.id, 'wrong_forwarder', 'critical',
-      'A Playo email for ' || v.name || ' was forwarded by ' || v_fwd || ' instead of ' || v.owner_gmail
+      'A ' || v_label || ' email for ' || v.name || ' was forwarded by ' || v_fwd || ' instead of ' || v.owner_gmail
         || '. Ignored. If the owner changed Gmail, update venue.owner_gmail and reprocess email #' || v_id || '.',
       jsonb_build_object('forwarded_for', v_fwd), v_id, NULL, 'wrong_forwarder:' || v_id);
     RETURN jsonb_build_object('raw_id', v_id, 'action', 'ignore', 'reason', 'forwarded by an unexpected Gmail');
   END IF;
 
-  UPDATE tori.venue SET last_playo_email_at = now(), updated_at = now() WHERE id = v.id;
+  UPDATE tori.venue SET last_booking_email_at = now(), updated_at = now() WHERE id = v.id;
   UPDATE tori.raw_message SET status = 'pending_parse' WHERE id = v_id;
-  RETURN jsonb_build_object('raw_id', v_id, 'action', 'parse', 'venue_id', v.id, 'kind', v_kind);
+  RETURN jsonb_build_object('raw_id', v_id, 'action', 'parse', 'venue_id', v.id, 'kind', v_kind, 'source', v_source);
 END $$;
 
 CREATE OR REPLACE FUNCTION tori.parse_input(p_raw_id bigint) RETURNS jsonb
@@ -315,9 +334,11 @@ LANGUAGE sql STABLE AS $$
     'status', r.status,
     'venue_id', v.id,
     'venue_name', v.name,
+    'source', r.source,
+    'source_label', tori.source_label(r.source),
     'timezone', v.timezone,
     'received_local', to_char(r.received_at AT TIME ZONE v.timezone, 'Dy DD Mon YYYY HH24:MI'),
-    'courts', coalesce((SELECT jsonb_agg(c.playo_name ORDER BY c.sort, c.id)
+    'courts', coalesce((SELECT jsonb_agg(c.name ORDER BY c.sort, c.id)
                         FROM tori.court c WHERE c.venue_id = v.id AND c.active), '[]'),
     'from', r.from_address,
     'subject', r.subject,
@@ -342,16 +363,18 @@ DECLARE
   r tori.raw_message%ROWTYPE;
   v tori.venue%ROWTYPE;
   v_note uuid := gen_random_uuid();
+  v_src text;
 BEGIN
   SELECT * INTO r FROM tori.raw_message WHERE id = p_raw_id;
   SELECT * INTO v FROM tori.venue WHERE id = r.venue_id;
+  v_src := tori.source_label(r.source);
   UPDATE tori.raw_message SET status = 'parse_failed', status_reason = p_reason, processed_at = now() WHERE id = r.id;
 
   INSERT INTO tori.calendar_note (id, venue_id, raw_message_id, note_date, title, description, gcal_event_id)
   VALUES (v_note, v.id, r.id, (r.received_at AT TIME ZONE v.timezone)::date,
-          '⚠️ Check Playo email',
-          'Tori could not read a Playo email, so a booking or cancellation may be missing from this calendar. '
-            || 'Please check the Playo app before selling walk-in slots.' || E'\n\n'
+          '⚠️ Check ' || v_src || ' email',
+          'Tori could not read a ' || v_src || ' email, so a booking or cancellation may be missing from this calendar. '
+            || 'Please check the ' || v_src || ' app before selling walk-in slots.' || E'\n\n'
             || 'Subject: ' || coalesce(r.subject, '(none)') || E'\n'
             || 'Received: ' || to_char(r.received_at AT TIME ZONE v.timezone, 'DD Mon YYYY, HH24:MI') || E'\n'
             || 'Tori reference: email #' || r.id,
@@ -361,8 +384,8 @@ BEGIN
   PERFORM tori.enqueue_calendar('calendar.note', v.id, v_note::text);
 
   PERFORM tori.raise_alert(v.id, 'unreadable', 'critical',
-    'Could not read a Playo email (' || p_reason || '). Subject: "' || coalesce(r.subject, '') || '". '
-      || 'A "Check Playo email" note is in the calendar. Fix the booking by hand, then reprocess email #' || r.id || '.',
+    'Could not read a ' || v_src || ' email (' || p_reason || '). Subject: "' || coalesce(r.subject, '') || '". '
+      || 'A "Check ' || v_src || ' email" note is in the calendar. Fix the booking by hand, then reprocess email #' || r.id || '.',
     jsonb_build_object('reason', p_reason), r.id, NULL, 'unreadable:' || r.id);
   RETURN jsonb_build_object('raw_id', r.id, 'action', 'unreadable', 'reason', p_reason);
 END $$;
@@ -374,6 +397,7 @@ DECLARE
   v tori.venue%ROWTYPE;
   res jsonb := coalesce(p_parse -> 'result', '{}');
   v_type text;
+  v_src text;
   v_pid text;
   v_haystack text;
   s jsonb;
@@ -413,6 +437,7 @@ BEGIN
     RETURN jsonb_build_object('raw_id', r.id, 'action', 'skipped', 'reason', 'status is ' || r.status);
   END IF;
   SELECT * INTO v FROM tori.venue WHERE id = r.venue_id;
+  v_src := tori.source_label(r.source);
 
   UPDATE tori.raw_message
      SET parse_result = p_parse, parse_model = p_parse ->> 'model',
@@ -445,7 +470,7 @@ BEGIN
     RETURN tori.mark_unreadable(r.id, 'unknown email_type ' || coalesce(v_type, 'null'));
   END IF;
 
-  v_pid := nullif(btrim(res ->> 'playo_booking_id'), '');
+  v_pid := nullif(btrim(coalesce(res ->> 'booking_id', res ->> 'playo_booking_id')), '');
   IF v_pid IS NULL THEN
     RETURN tori.mark_unreadable(r.id, 'no booking ID found');
   END IF;
@@ -512,16 +537,16 @@ BEGIN
   END LOOP;
 
   IF v_type = 'booking_cancelled' THEN
-    SELECT * INTO b FROM tori.booking WHERE venue_id = v.id AND playo_booking_id = v_pid FOR UPDATE;
+    SELECT * INTO b FROM tori.booking WHERE venue_id = v.id AND source = r.source AND source_booking_id = v_pid FOR UPDATE;
     IF NOT FOUND THEN
-      INSERT INTO tori.booking (venue_id, playo_booking_id, status, customer_name, customer_phone_masked,
+      INSERT INTO tori.booking (venue_id, source, source_booking_id, status, customer_name, customer_phone_masked,
                                 amount, payment_status, sport, first_raw_message_id, last_raw_message_id, cancelled_at)
-      VALUES (v.id, v_pid, 'cancelled', res ->> 'customer_name', tori.mask_phone(res ->> 'customer_phone'),
+      VALUES (v.id, r.source, v_pid, 'cancelled', res ->> 'customer_name', tori.mask_phone(res ->> 'customer_phone'),
               (res ->> 'amount')::numeric, coalesce(res ->> 'payment_status', 'unknown'), res ->> 'sport',
               r.id, r.id, now())
       RETURNING * INTO b;
       PERFORM tori.raise_alert(v.id, 'cancel_unknown_booking', 'info',
-        'Cancellation for Playo booking ' || v_pid || ', which Tori never saw booked. Nothing to remove.',
+        'Cancellation for ' || v_src || ' booking ' || v_pid || ', which Tori never saw booked. Nothing to remove.',
         '{}', r.id, b.id, 'cancel_unknown:' || b.id, false);
       UPDATE tori.raw_message SET status = 'applied', status_reason = 'cancellation for unknown booking',
              processed_at = now() WHERE id = r.id;
@@ -551,8 +576,8 @@ BEGIN
 
       IF v_unmatched > 0 OR v_unparsed > 0 THEN
         PERFORM tori.raise_alert(v.id, 'cancel_mismatch', 'critical',
-          'Cancellation email for Playo booking ' || v_pid || ' lists slots Tori cannot match, so NOTHING was removed. '
-            || 'Check Playo, fix the calendar by hand, then acknowledge.',
+          'Cancellation email for ' || v_src || ' booking ' || v_pid || ' lists slots Tori cannot match, so NOTHING was removed. '
+            || 'Check ' || v_src || ', fix the calendar by hand, then acknowledge.',
           jsonb_build_object('parsed_slots', res -> 'slots'), r.id, b.id, 'cancel_mismatch:' || r.id);
         UPDATE tori.raw_message SET status = 'applied', status_reason = 'cancellation needs manual review',
                processed_at = now() WHERE id = r.id;
@@ -576,15 +601,15 @@ BEGIN
      WHERE id = b.id;
 
     IF cardinality(v_cancel) > 0 THEN
-      SELECT string_agg(tori.fmt_slot(coalesce(c.display_name, c.playo_name, bs.court_label), bs.starts_at, bs.ends_at, v.timezone),
+      SELECT string_agg(tori.fmt_slot(coalesce(c.display_name, c.name, bs.court_label), bs.starts_at, bs.ends_at, v.timezone),
                         E'\n' ORDER BY bs.starts_at)
         INTO v_lines
         FROM tori.booking_slot bs LEFT JOIN tori.court c ON c.id = bs.court_id
        WHERE bs.id = ANY (v_cancel);
       PERFORM tori.notify(v.id, 'booking', 'booking_cancelled',
-        '❌ Playo booking cancelled · ' || v.name || E'\n' || v_lines || E'\n'
-          || tori.short_name(b.customer_name) || ' · ID ' || v_pid || E'\nRemoved from the calendar.',
-        jsonb_build_array(v.name, replace(v_lines, E'\n', '; '), tori.short_name(b.customer_name) || ' · ID ' || v_pid),
+        '❌ ' || v_src || ' booking cancelled · ' || v.name || E'\n' || v_lines || E'\n'
+          || tori.short_name(b.customer_name) || ' · ' || v_src || ' ID ' || v_pid || E'\nRemoved from the calendar.',
+        jsonb_build_array(v.name, replace(v_lines, E'\n', '; '), tori.short_name(b.customer_name) || ' · ' || v_src || ' ID ' || v_pid),
         'booking_cancelled:' || b.id || ':' || md5((SELECT string_agg(z::text, ',' ORDER BY z) FROM unnest(v_cancel) z)));
     END IF;
 
@@ -601,11 +626,11 @@ BEGIN
     RETURN tori.mark_unreadable(r.id, 'no readable court, date and time');
   END IF;
 
-  INSERT INTO tori.booking (venue_id, playo_booking_id, status, customer_name, customer_phone_masked,
+  INSERT INTO tori.booking (venue_id, source, source_booking_id, status, customer_name, customer_phone_masked,
                             amount, payment_status, sport, first_raw_message_id, last_raw_message_id)
-  VALUES (v.id, v_pid, 'confirmed', res ->> 'customer_name', tori.mask_phone(res ->> 'customer_phone'),
+  VALUES (v.id, r.source, v_pid, 'confirmed', res ->> 'customer_name', tori.mask_phone(res ->> 'customer_phone'),
           (res ->> 'amount')::numeric, coalesce(res ->> 'payment_status', 'unknown'), res ->> 'sport', r.id, r.id)
-  ON CONFLICT (venue_id, playo_booking_id) DO UPDATE SET
+  ON CONFLICT (venue_id, source, source_booking_id) DO UPDATE SET
     customer_name         = coalesce(EXCLUDED.customer_name, tori.booking.customer_name),
     customer_phone_masked = coalesce(EXCLUDED.customer_phone_masked, tori.booking.customer_phone_masked),
     amount                = coalesce(EXCLUDED.amount, tori.booking.amount),
@@ -669,7 +694,7 @@ BEGIN
   END LOOP;
 
   IF cardinality(v_new_slots) > 0 OR v_type = 'booking_modified' THEN
-    SELECT string_agg(tori.fmt_slot(coalesce(c.display_name, c.playo_name, bs.court_label), bs.starts_at, bs.ends_at, v.timezone)
+    SELECT string_agg(tori.fmt_slot(coalesce(c.display_name, c.name, bs.court_label), bs.starts_at, bs.ends_at, v.timezone)
                         || CASE WHEN cardinality(bs.clash_with) > 0 THEN ' ⚠️ CLASH' ELSE '' END,
                       E'\n' ORDER BY bs.starts_at)
       INTO v_lines
@@ -679,20 +704,20 @@ BEGIN
     v_event := CASE WHEN v_type = 'booking_modified' THEN 'booking_modified'
                     WHEN v_new_booking THEN 'booking_new' ELSE 'booking_updated' END;
     v_text := CASE v_event
-                WHEN 'booking_new' THEN '✅ *New Playo booking*'
-                WHEN 'booking_modified' THEN '🔁 *Playo booking changed*'
-                ELSE '➕ *Slots added to Playo booking*' END
+                WHEN 'booking_new' THEN '✅ *New ' || v_src || ' booking*'
+                WHEN 'booking_modified' THEN '🔁 *' || v_src || ' booking changed*'
+                ELSE '➕ *Slots added to ' || v_src || ' booking*' END
               || E'\n🏟️ ' || v.name
               || E'\n🏸 ' || replace(coalesce(v_lines, '(no active slots)'), E'\n', E'\n🏸 ')
               || E'\n👤 ' || tori.short_name(b.customer_name)
               || coalesce(' · ₹' || trim_scale(b.amount)::text, '')
               || coalesce(' ' || replace(nullif(b.payment_status, 'unknown'), '_', ' '), '')
-              || E'\n🔖 Playo ID: ' || v_pid
+              || E'\n🔖 ' || v_src || ' ID: ' || v_pid
               || CASE WHEN v_lines LIKE '%CLASH%' THEN E'\n\n⚠️ Clashes with another booking. Details below.' ELSE '' END;
     PERFORM tori.notify(v.id, 'booking', v_event, v_text,
       jsonb_build_array(v.name, replace(coalesce(v_lines, ''), E'\n', '; '),
                         tori.short_name(b.customer_name) || coalesce(' · ₹' || trim_scale(b.amount)::text, '')
-                          || ' · ID ' || v_pid),
+                          || ' · ' || v_src || ' ID ' || v_pid),
       v_event || ':' || b.id || ':' || r.id);
   END IF;
 
@@ -700,8 +725,9 @@ BEGIN
     SELECT * INTO sl FROM tori.booking_slot WHERE id = (p ->> 'slot')::uuid;
     y := (p ->> 'other')::uuid;
     v_clashes := v_clashes + 1;
-    SELECT os.*, ob.playo_booking_id AS other_pid, ob.customer_name AS other_customer,
-           coalesce(c.display_name, c.playo_name, os.court_label) AS court_name
+    SELECT os.*, ob.source_booking_id AS other_pid, tori.source_label(ob.source) AS other_src,
+           ob.customer_name AS other_customer,
+           coalesce(c.display_name, c.name, os.court_label) AS court_name
       INTO o
       FROM tori.booking_slot os JOIN tori.booking ob ON ob.id = os.booking_id
       LEFT JOIN tori.court c ON c.id = os.court_id
@@ -709,17 +735,17 @@ BEGIN
     v_lines := tori.fmt_slot(o.court_name, greatest(o.starts_at, sl.starts_at), least(o.ends_at, sl.ends_at), v.timezone);
     PERFORM tori.raise_alert(v.id, 'clash', 'critical',
       'Double booking: ' || v_lines
-        || E'\n1️⃣ ' || o.other_pid || ' · ' || tori.short_name(o.other_customer) || ' (booked first)'
-        || E'\n2️⃣ ' || v_pid || ' · ' || tori.short_name(b.customer_name) || ' (new)'
+        || E'\n1️⃣ ' || o.other_src || ' ' || o.other_pid || ' · ' || tori.short_name(o.other_customer) || ' (booked first)'
+        || E'\n2️⃣ ' || v_src || ' ' || v_pid || ' · ' || tori.short_name(b.customer_name) || ' (new)'
         || E'\nBoth are marked CLASH in the calendar. Call the owner.',
       jsonb_build_object('slot', sl.id, 'other_slot', y), r.id, b.id,
       'clash:' || least(sl.id::text, y::text) || ':' || greatest(sl.id::text, y::text));
     PERFORM tori.notify(v.id, 'owner', 'clash',
       '⚠️ *Double booking*' || E'\n🏟️ ' || v.name || E'\n🏸 ' || v_lines
-        || E'\n\n1️⃣ ' || tori.short_name(o.other_customer) || ' · ' || o.other_pid || ' (booked first)'
-        || E'\n2️⃣ ' || tori.short_name(b.customer_name) || ' · ' || v_pid || ' (new)'
+        || E'\n\n1️⃣ ' || tori.short_name(o.other_customer) || ' · ' || o.other_src || ' ' || o.other_pid || ' (booked first)'
+        || E'\n2️⃣ ' || tori.short_name(b.customer_name) || ' · ' || v_src || ' ' || v_pid || ' (new)'
         || E'\n\nBoth are marked CLASH in your calendar. Tori will call you shortly to sort it out.',
-      jsonb_build_array(v.name, v_lines, 'Playo ' || v_pid || ' and Playo ' || o.other_pid),
+      jsonb_build_array(v.name, v_lines, v_src || ' ' || v_pid || ' and ' || o.other_src || ' ' || o.other_pid),
       'clash:' || least(sl.id::text, y::text) || ':' || greatest(sl.id::text, y::text));
   END LOOP;
 
@@ -732,7 +758,7 @@ BEGIN
   END IF;
   IF v_review IS NOT NULL THEN
     PERFORM tori.raise_alert(v.id, 'needs_review', 'warn',
-      'Playo booking ' || v_pid || ' needs a check: ' || v_review || '. Event is in the calendar with ⚠️ CHECK.',
+      v_src || ' booking ' || v_pid || ' needs a check: ' || v_review || '. Event is in the calendar with ⚠️ CHECK.',
       jsonb_build_object('parsed', res), r.id, b.id, 'review:' || r.id);
   END IF;
 
@@ -751,9 +777,10 @@ LANGUAGE sql STABLE AS $$
     'summary',
       CASE WHEN cardinality(s.clash_with) > 0 THEN '⚠️ CLASH · '
            WHEN cardinality(s.review_reasons) > 0 THEN '⚠️ CHECK · ' ELSE '' END
-      || coalesce(c.display_name, c.playo_name, s.court_label) || ' · Playo · ' || tori.short_name(b.customer_name),
+      || coalesce(c.display_name, c.name, s.court_label) || ' · ' || tori.source_label(b.source)
+      || ' · ' || tori.short_name(b.customer_name),
     'description', concat_ws(E'\n',
-      'Playo booking ID: ' || b.playo_booking_id,
+      tori.source_label(b.source) || ' booking ID: ' || b.source_booking_id,
       'Amount: ₹' || trim_scale(b.amount)::text,
       'Payment: ' || replace(b.payment_status, '_', ' '),
       'Phone: ' || b.customer_phone_masked,
@@ -761,12 +788,13 @@ LANGUAGE sql STABLE AS $$
       'Received by Tori: ' || to_char(fr.received_at AT TIME ZONE v.timezone, 'DD Mon YYYY, HH24:MI'),
       CASE WHEN cardinality(s.clash_with) > 0 THEN
         E'\n⚠️ CLASH: this court is also booked by '
-        || (SELECT string_agg('Playo ' || ob.playo_booking_id || ' (' || tori.short_name(ob.customer_name) || ')', ', ')
+        || (SELECT string_agg(tori.source_label(ob.source) || ' ' || ob.source_booking_id || ' (' || tori.short_name(ob.customer_name) || ')', ', ')
               FROM tori.booking_slot os JOIN tori.booking ob ON ob.id = os.booking_id
              WHERE os.id = ANY (s.clash_with))
         || '. Tori will call you.' END,
       CASE WHEN cardinality(s.review_reasons) > 0 THEN E'\n⚠️ Check: ' || tori.reason_text(s.review_reasons) END,
-      E'\nAdded by Tori Desk from Playo. Changes come from Playo; edits here are overwritten.'),
+      E'\nAdded by Tori Desk from ' || tori.source_label(b.source) || '. Changes come from '
+        || tori.source_label(b.source) || '; edits here are overwritten.'),
     'start', jsonb_build_object('dateTime', to_char(s.starts_at AT TIME ZONE v.timezone, 'YYYY-MM-DD"T"HH24:MI:SS'),
                                 'timeZone', v.timezone),
     'end', jsonb_build_object('dateTime', to_char(s.ends_at AT TIME ZONE v.timezone, 'YYYY-MM-DD"T"HH24:MI:SS'),
@@ -776,7 +804,7 @@ LANGUAGE sql STABLE AS $$
     'colorId', CASE WHEN cardinality(s.clash_with) > 0 THEN '11'
                     WHEN cardinality(s.review_reasons) > 0 THEN '5' END,
     'extendedProperties', jsonb_build_object('private', jsonb_build_object(
-      'playoBookingId', b.playo_booking_id, 'toriSlotId', s.id::text, 'toriVenueId', v.id::text)),
+      'bookingSource', b.source, 'bookingId', b.source_booking_id, 'toriSlotId', s.id::text, 'toriVenueId', v.id::text)),
     'reminders', jsonb_build_object('useDefault', false)))
   FROM tori.booking_slot s
   JOIN tori.booking b ON b.id = s.booking_id
@@ -987,10 +1015,10 @@ DECLARE
 BEGIN
   FOR v IN SELECT * FROM tori.venue
            WHERE status = 'live'
-             AND coalesce(last_playo_email_at, created_at) < now() - make_interval(hours => quiet_alert_hours) LOOP
+             AND coalesce(last_booking_email_at, created_at) < now() - make_interval(hours => quiet_alert_hours) LOOP
     IF tori.raise_alert(v.id, 'quiet', 'warn',
-         'No Playo email for ' || v.name || ' in ' || v.quiet_alert_hours || '+ hours (last: '
-           || coalesce(to_char(v.last_playo_email_at AT TIME ZONE v.timezone, 'DD Mon HH24:MI'), 'never')
+         'No booking email for ' || v.name || ' in ' || v.quiet_alert_hours || '+ hours (last: '
+           || coalesce(to_char(v.last_booking_email_at AT TIME ZONE v.timezone, 'DD Mon HH24:MI'), 'never')
            || '). Check the owner''s Gmail filter and forwarding (steps B1–B3).',
          '{}', NULL, NULL, 'quiet:' || v.id || ':' || current_date) IS NOT NULL THEN
       n_quiet := n_quiet + 1;
@@ -1048,7 +1076,7 @@ BEGIN
   RETURNING id INTO v_id;
   FOR v_court IN SELECT jsonb_array_elements_text(coalesce(p -> 'courts', '[]')) LOOP
     i := i + 1;
-    INSERT INTO tori.court (venue_id, playo_name, sort) VALUES (v_id, v_court, i);
+    INSERT INTO tori.court (venue_id, name, sort) VALUES (v_id, v_court, i);
   END LOOP;
   RETURN jsonb_build_object('venue_id', v_id, 'tenant_id', v_tenant, 'inbound_address', v_addr, 'courts', i);
 END $$;
@@ -1104,13 +1132,14 @@ BEGIN
     RETURN jsonb_build_object('raw_id', r.id, 'action', 'ignore', 'reason', 'cannot reprocess ' || r.kind || '/' || r.status);
   END IF;
   UPDATE tori.raw_message
-     SET kind = CASE WHEN from_address ~ tori.cfg('playo_sender_regex') THEN 'playo' ELSE kind END,
+     SET source = coalesce(tori.source_for_sender(from_address), source),
+         kind = CASE WHEN tori.source_for_sender(from_address) IS NOT NULL THEN 'booking_email' ELSE kind END,
          status = 'pending_parse', parse_attempts = 0, status_reason = 'reprocess requested'
    WHERE id = r.id
   RETURNING * INTO r;
-  IF r.kind NOT IN ('playo', 'playo_manual_forward') THEN
-    UPDATE tori.raw_message SET status = 'rejected', status_reason = 'sender is not Playo' WHERE id = r.id;
-    RETURN jsonb_build_object('raw_id', r.id, 'action', 'ignore', 'reason', 'sender is still not Playo');
+  IF r.kind NOT IN ('booking_email', 'manual_forward') THEN
+    UPDATE tori.raw_message SET status = 'rejected', status_reason = 'sender is not a booking platform' WHERE id = r.id;
+    RETURN jsonb_build_object('raw_id', r.id, 'action', 'ignore', 'reason', 'sender is still not a booking platform');
   END IF;
   RETURN jsonb_build_object('raw_id', r.id, 'action', 'parse');
 END $$;
@@ -1123,10 +1152,10 @@ DROP VIEW IF EXISTS tori.v_outbox_health;
 
 CREATE VIEW tori.v_bookings AS
 SELECT v.name AS venue,
-       coalesce(c.display_name, c.playo_name, s.court_label) AS court,
+       coalesce(c.display_name, c.name, s.court_label) AS court,
        to_char(s.starts_at AT TIME ZONE v.timezone, 'Dy DD Mon YYYY HH24:MI') AS starts_local,
        to_char(s.ends_at AT TIME ZONE v.timezone, 'HH24:MI') AS ends_local,
-       b.playo_booking_id, b.customer_name, b.customer_phone_masked, b.amount, b.payment_status,
+       b.source, b.source_booking_id, b.customer_name, b.customer_phone_masked, b.amount, b.payment_status,
        b.status AS booking_status, s.status AS slot_status,
        cardinality(s.clash_with) > 0 AS clash, s.review_reasons, s.calendar_state, s.calendar_html_link,
        s.starts_at, v.id AS venue_id, b.id AS booking_id, s.id AS slot_id
@@ -1136,14 +1165,14 @@ JOIN tori.venue v ON v.id = s.venue_id
 LEFT JOIN tori.court c ON c.id = s.court_id;
 
 CREATE VIEW tori.v_latency AS
-SELECT b.venue_id, b.playo_booking_id, r.email_date, r.received_at,
+SELECT b.venue_id, b.source, b.source_booking_id, r.email_date, r.received_at,
        min(s.first_synced_at) AS in_calendar_at,
        extract(epoch FROM min(s.first_synced_at) - coalesce(r.email_date, r.received_at))::int AS seconds_to_calendar,
        extract(epoch FROM min(s.first_synced_at) - r.received_at)::int AS seconds_inside_tori
 FROM tori.booking b
 JOIN tori.raw_message r ON r.id = b.first_raw_message_id
 JOIN tori.booking_slot s ON s.booking_id = b.id
-GROUP BY b.venue_id, b.playo_booking_id, r.email_date, r.received_at;
+GROUP BY b.venue_id, b.source, b.source_booking_id, r.email_date, r.received_at;
 
 CREATE VIEW tori.v_latency_summary AS
 SELECT venue_id, count(*) AS bookings,
