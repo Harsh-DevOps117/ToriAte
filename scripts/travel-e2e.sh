@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# Travel partner matching, tested end to end in a throwaway stack. The live stack is not touched.
+#   - Docker project "toritravel": its own volumes, ports 15433 (Postgres), 15678 (n8n), 18090 (mocks)
+#   - real Groq (LLM_API_KEY from .env), mock WhatsApp + mock geocoder (mock-apis)
+#   - workflow 06 is imported as a copy whose WhatsApp Trigger is a plain webhook (POST /webhook/wa-test)
+# Runs db/tests/travel_matching.sql, then scripts/travel_e2e.py (~5 minutes: Groq free-tier pacing).
+#
+#   scripts/travel-e2e.sh          run, then remove the stack
+#   KEEP=1 scripts/travel-e2e.sh   leave it running afterwards (n8n UI: http://localhost:15678)
+set -euo pipefail
+cd "$(dirname "$0")/.."
+ROOT=$PWD
+T=$(mktemp -d)
+LLM_KEY=$(grep '^LLM_API_KEY=' .env | cut -d= -f2- | tr -d "'\"")
+[ -n "$LLM_KEY" ] || { echo "LLM_API_KEY missing in .env"; exit 1; }
+
+mkdir -p "$T/n8n/workflows"
+cp -r n8n/bootstrap "$T/n8n/"
+cp n8n/workflows/0[789]-travel-*.json n8n/workflows/1[012]-travel-*.json "$T/n8n/workflows/"
+python3 - n8n/workflows/06-whatsapp-bot.json "$T/n8n/workflows/06-test.json" <<'PY'
+import json, sys
+w = json.load(open(sys.argv[1]))
+t = next(n for n in w['nodes'] if n['name'] == 'WhatsApp Trigger')
+pos = t['position']
+t.clear()
+t.update({'parameters': {'mode': 'runOnceForEachItem', 'jsCode': 'return { json: $json.body };'},
+          'id': '11111111-1111-4111-8111-111111111111', 'name': 'WhatsApp Trigger', 'type': 'n8n-nodes-base.code',
+          'typeVersion': 2, 'position': pos})
+w['nodes'].append({'parameters': {'httpMethod': 'POST', 'path': 'wa-test', 'options': {}},
+                   'id': '22222222-2222-4222-8222-222222222222', 'name': 'Test inbound', 'type': 'n8n-nodes-base.webhook',
+                   'typeVersion': 2, 'position': [pos[0] - 260, pos[1]], 'webhookId': '33333333-3333-4333-8333-333333333333'})
+w['connections']['Test inbound'] = {'main': [[{'node': 'WhatsApp Trigger', 'type': 'main', 'index': 0}]]}
+w['id'], w['name'] = 'toriWhatsAppTest', 'TEST 06 (webhook trigger)'
+json.dump(w, open(sys.argv[2], 'w'))
+PY
+
+cat > "$T/test.env" <<EOF
+COMPOSE_PROFILES=mock
+TZ=Asia/Kolkata
+POSTGRES_PASSWORD=pg-test
+TORI_DB_PASSWORD=tori-test
+N8N_DB_PASSWORD=n8n-test
+N8N_ENCRYPTION_KEY=travel-e2e-throwaway-key-000000
+N8N_HOST=localhost
+WEBHOOK_URL=http://localhost:15678/
+N8N_OWNER_EMAIL=test@example.com
+N8N_OWNER_PASSWORD=TestPass123!
+N8N_OWNER_FIRST_NAME=Test
+N8N_OWNER_LAST_NAME=Run
+INBOUND_WEBHOOK_USER=postmark
+INBOUND_WEBHOOK_PASSWORD=x
+ADMIN_API_KEY=x
+LLM_BASE_URL=https://api.groq.com/openai/v1
+LLM_API_KEY=$LLM_KEY
+LLM_MODEL=openai/gpt-oss-120b
+GOOGLE_TOKEN_URI=http://mock-apis:8090/google/token
+GCAL_BASE_URL=http://mock-apis:8090/google/calendar/v3
+WHATSAPP_BASE_URL=http://mock-apis:8090/whatsapp/v21.0
+WHATSAPP_PHONE_NUMBER_ID=100000000000001
+WHATSAPP_TOKEN=mock-token
+WHATSAPP_MODE=text
+WHATSAPP_TEMPLATE_LANG=en
+BOT_ENABLED=0
+BOT_WHATSAPP_PHONE_NUMBER_ID=100000000000002
+BOT_WHATSAPP_TOKEN=mock-token
+BOT_WHATSAPP_GRAPH_URL=http://mock-apis:8090/whatsapp/v19.0
+TRAVEL_GEOCODER=nominatim
+TRAVEL_GEOCODER_URL=http://mock-apis:8090/geocode/search
+TRAVEL_GEOCODER_USER_AGENT=ToriWhatsAppBot/1.0-test
+TRAVEL_MATCH_TEMPLATE=travel_match_found
+TRAVEL_TRIP_FLOW_ID=mock-flow-1
+TRAVEL_TRIP_FLOW_MODE=draft
+EOF
+cat > "$T/override.yml" <<EOF
+services:
+  postgres:
+    ports: !override ["127.0.0.1:15433:5432"]
+  mock-apis:
+    ports: !override ["127.0.0.1:18090:8090"]
+  n8n-bootstrap:
+    volumes: !override
+      - n8ndata:/home/node/.n8n
+      - $T/n8n:/opt/tori/n8n:ro,z
+  n8n:
+    ports: !override ["127.0.0.1:15678:5678"]
+    volumes: !override
+      - n8ndata:/home/node/.n8n
+      - $T/n8n:/opt/tori/n8n:ro,z
+EOF
+
+DC=(docker compose -p toritravel --env-file "$T/test.env" -f docker-compose.yml -f "$T/override.yml")
+cleanup() {
+  if [ "${KEEP:-0}" != 1 ]; then "${DC[@]}" down -v >/dev/null 2>&1 || true; rm -rf "$T"; fi
+}
+trap cleanup EXIT
+"${DC[@]}" up -d --wait postgres mock-apis n8n >/dev/null
+until curl -sf http://localhost:15678/healthz >/dev/null; do sleep 2; done
+sleep 5
+
+echo "── SQL scenarios (db/tests/travel_matching.sql)"
+docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/travel_matching.sql 2>&1 \
+  | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
+echo "── End to end (scripts/travel_e2e.py)"
+python3 "$ROOT/scripts/travel_e2e.py"

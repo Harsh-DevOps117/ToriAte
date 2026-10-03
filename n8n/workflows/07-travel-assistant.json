@@ -1,0 +1,848 @@
+{
+  "id": "toriTravelAssist",
+  "name": "Tori 07 · Travel · assistant",
+  "description": "Handles a travel message from the WhatsApp bot (06): dedupe, collect missing details, geocode, save the TravelIntent, start matching. Also routes yes / no / block / report.",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "cdf89716-5622-5634-b763-990ff1974ce2",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.travel_begin_message($1, $2, $3) AS u;",
+        "options": {
+          "queryReplacement": "={{ [ $json.wa_id, $json.profile_name || '', $json.message_id || '' ] }}"
+        }
+      },
+      "id": "506c6ae2-b70a-5e74-81f8-5a18386d75b4",
+      "name": "Register message",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b210830d-e6bb-54e1-b541-f8caf35f18fc",
+              "leftValue": "={{ !$json.u.duplicate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "e11da514-84a1-5a53-ba76-34d8d1b79a1c",
+      "name": "New message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// What the person wants. The LLM (workflow 06) already classified the message; buttons carry the match ID.\nconst msg = $('When called').first().json;\nconst user_id = $json.u.user_id;\nconst t = msg.travel || {};\nconst reply = (kind, text = '') => ({ json: { route: 'reply', user_id, kind, text } });\nconst respond = (action, match_id = '', reason = '') => ({ json: { route: 'respond', user_id, action, match_id, reason } });\n\nif (msg.intent === 'travel_button') {\n  const m = String(msg.button_id || '').match(/^tm_(yes|no|block)_([0-9a-f-]{36})$/);\n  if (!m) return reply('match_unavailable');\n  return respond({ yes: 'accept', no: 'decline', block: 'block' }[m[1]], m[2]);\n}\nif (msg.intent === 'travel_start') {\n  // \"🚕 Cab buddy\" from the services menu: start (or show) their trip request\n  return { json: { route: 'request', user_id, from_menu: true, travel: { source: null, destination: null, date: null, time: null } } };\n}\nif (msg.intent === 'travel_form') {\n  // WhatsApp Flow reply: date is YYYY-MM-DD (newer Flow versions) or a timestamp in ms (older ones)\n  const raw = t.date;\n  const date = raw && /^\\d{10,}$/.test(String(raw))\n    ? DateTime.fromMillis(Number(raw), { zone: 'Asia/Kolkata' }).toISODate() : (raw || null);\n  return { json: { route: 'request', user_id, from_form: true,\n    travel: { source: t.source || null, destination: t.destination || null, date, time: t.time || null } } };\n}\nswitch (msg.intent) {\n  case 'travel_consent':\n    if (t.consent === 'accept' || t.consent === 'decline') return respond(t.consent);\n    return reply('reply', 'Would you like to connect with them? Just reply yes or no 🙂');\n  case 'travel_block':\n    return respond('block');\n  case 'travel_report':\n    return respond('report', '', String(t.reason || '').slice(0, 500));\n  case 'travel_cancel':\n    return { json: { route: 'cancel', user_id } };\n  default:\n    return { json: { route: 'request', user_id,\n      travel: { source: t.source ?? null, destination: t.destination ?? null, date: t.date ?? null, time: t.time ?? null } } };\n}\n"
+      },
+      "id": "4380ce29-de62-5c8a-861e-ea940b3cdef7",
+      "name": "Route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 4,
+        "output": "={{ [\"request\", \"cancel\", \"respond\", \"reply\"].indexOf($json.route) }}"
+      },
+      "id": "a1456263-5e1e-5b53-a37d-3fd7fece3bc8",
+      "name": "Travel route",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.travel_load_request($1::uuid, $2::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.user_id, JSON.stringify({ max_source_km: $env.TRAVEL_MAX_SOURCE_DISTANCE_KM, max_destination_km: $env.TRAVEL_MAX_DESTINATION_DISTANCE_KM, max_time_diff_min: $env.TRAVEL_MAX_TIME_DIFFERENCE_MINUTES, max_candidates: $env.TRAVEL_MAX_MATCH_CANDIDATES, w_source: $env.TRAVEL_SCORE_WEIGHT_SOURCE, w_destination: $env.TRAVEL_SCORE_WEIGHT_DESTINATION, w_time: $env.TRAVEL_SCORE_WEIGHT_TIME, consent_timeout_min: $env.TRAVEL_CONSENT_TIMEOUT_MINUTES, intent_grace_min: $env.TRAVEL_INTENT_GRACE_MINUTES, draft_ttl_min: $env.TRAVEL_DRAFT_TTL_MINUTES, max_days_ahead: $env.TRAVEL_MAX_DAYS_AHEAD, max_changes_per_hour: $env.TRAVEL_MAX_REQUEST_CHANGES_PER_HOUR, max_changes_per_day: $env.TRAVEL_MAX_REQUEST_CHANGES_PER_DAY, decline_cooldown_days: $env.TRAVEL_DECLINE_COOLDOWN_DAYS, geocode_cache_days: $env.TRAVEL_GEOCODE_CACHE_DAYS }) ] }}"
+        }
+      },
+      "id": "a85688c1-90d1-5584-9c06-a2aa3572061d",
+      "name": "Load travel request",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1300,
+        -400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Deterministic: merge the newly extracted fields into the person's unfinished request, check the\n// day and time, and work out which details are still missing. The LLM never decides this.\nconst ZONE = 'Asia/Kolkata';\nconst MAX_DAYS = Number($env.TRAVEL_MAX_DAYS_AHEAD) || 30;\nconst { user_id, travel: ai, from_form, from_menu } = $('Route').first().json;\nconst loaded = $json.r || {};\nconst cur = loaded.request || {};\nconst now = DateTime.now().setZone(ZONE);\nconst today = now.startOf('day');\nconst at = (day, hhmm) => { const [h, m] = hhmm.split(':').map(Number); return day.set({ hour: h, minute: m, second: 0, millisecond: 0 }); };\nconst clean = (s) => (typeof s === 'string' && s.trim()) ? s.trim().replace(/\\s+/g, ' ').slice(0, 120) : null;\n\nconst changing = ai.source || ai.destination || ai.date || ai.time;\nif (loaded.rate_limited && changing) return { json: { route: 'reply', user_id, kind: 'rate_limited' } };\n\n// newest answer wins\nconst f = {\n  source_text: clean(ai.source) ?? cur.source ?? null,\n  destination_text: clean(ai.destination) ?? cur.destination ?? null,\n  travel_date: ai.date ?? cur.date ?? null,\n  departure_time: ai.time ?? cur.time ?? null,\n};\nconst problems = [];\nif (f.travel_date && !(/^\\d{4}-\\d{2}-\\d{2}$/.test(f.travel_date) && DateTime.fromISO(f.travel_date, { zone: ZONE }).isValid)) {\n  problems.push(\"I couldn't understand the date. Which day are you travelling?\");\n  f.travel_date = null;\n}\nif (f.departure_time && !/^([01]\\d|2[0-3]):[0-5]\\d$/.test(f.departure_time)) f.departure_time = null;\n// a time with no day (\"at 6 PM\") means today, if that is still ahead\nif (!f.travel_date && f.departure_time && !problems.length && at(today, f.departure_time) > now.plus({ minutes: 5 })) {\n  f.travel_date = today.toISODate();\n}\nif (f.travel_date) {\n  const d = DateTime.fromISO(f.travel_date, { zone: ZONE });\n  if (d < today) { problems.push('That date has already passed. Which day are you travelling?'); f.travel_date = null; }\n  else if (d > today.plus({ days: MAX_DAYS })) { problems.push(`I can only look up to ${MAX_DAYS} days ahead. Which day are you travelling?`); f.travel_date = null; }\n  else if (f.departure_time && at(d, f.departure_time) <= now) { problems.push('That time has already passed. What time are you leaving?'); f.departure_time = null; }\n}\nif (f.source_text && f.destination_text && f.source_text.toLowerCase() === f.destination_text.toLowerCase()) {\n  problems.push('Your start and destination look the same. Where are you going?');\n  f.destination_text = null;\n}\n\n// ask only for what is missing (at most two questions)\nconst ask = [...problems];\nconst has = (s) => ask.some((q) => q.includes(s));\nif (!f.source_text && !f.destination_text) ask.push('Where are you travelling from, and where are you going?');\nelse if (!f.source_text) ask.push('Where will you be starting from?');\nelse if (!f.destination_text && !has('destination')) ask.push('Where are you going?');\nif (!f.travel_date && !f.departure_time) { if (!has('Which day')) ask.push('When are you leaving? (e.g. tomorrow 6 PM)'); }\nelse if (!f.travel_date) { if (!has('Which day')) ask.push('Which day are you travelling?'); }\nelse if (!f.departure_time && !has('time')) ask.push('What time are you planning to leave?');\n\n// Details missing and the WhatsApp trip form is set up: send the form (pre-filled) instead of questions\nif (ask.length && !problems.length && !from_form && $env.TRAVEL_TRIP_FLOW_ID) {\n  return { json: { route: 'ask', user_id, kind: 'trip_form', text: '', fields: f } };\n}\nif (ask.length && from_menu) {\n  return { json: { route: 'ask', user_id, kind: 'reply', fields: f, text: '🚕 *Cab buddy*: tell me your trip and I\\'ll look for someone '\n    + 'going the same way. Your number and exact places stay private unless you both agree to connect.\\n\\n'\n    + 'Where are you travelling from and to, and when?\\ne.g. \"Jhunsi to Civil Lines, today 6 PM\"' } };\n}\nif (ask.length) {\n  const known = f.source_text || f.destination_text || f.travel_date || f.departure_time;\n  return { json: { route: 'ask', user_id, kind: 'reply', fields: f,\n    text: (problems.length ? '' : known ? 'Got it. ' : 'Sure! ') + ask.slice(0, 2).join('\\n') } };\n}\nreturn { json: { route: 'geocode', user_id, fields: f } };\n"
+      },
+      "id": "1e9b2192-81bb-5e5f-9fb6-509d5bafe9d9",
+      "name": "Validate travel details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 3,
+        "output": "={{ [\"geocode\", \"ask\", \"reply\"].indexOf($json.route) }}"
+      },
+      "id": "39d48721-7299-57a1-a43b-f38b2ad66c94",
+      "name": "Details route",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1820,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.travel_save_draft($1::uuid, $2::jsonb) AS id, $1 AS user_id, $3 AS text, $4 AS kind;",
+        "options": {
+          "queryReplacement": "={{ [ $json.user_id, JSON.stringify($json.fields), $json.text || '', $json.kind || 'reply' ] }}"
+        }
+      },
+      "id": "853cfb7d-6cbf-58bf-ad42-72d91590b7a7",
+      "name": "Save draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3120,
+        -200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "toriTravelNotify"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "4129a3ff-d1d0-52fb-8ada-bcf2f8dff390",
+      "name": "Send reply",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3380,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "18110727-2367-5d20-9fdf-b9cf9709bd47",
+              "name": "query",
+              "value": "={{ $json.fields.source_text }}",
+              "type": "string"
+            },
+            {
+              "id": "547f0b7e-a18d-5e20-9b11-79db6c7fda87",
+              "name": "user_id",
+              "value": "={{ $json.user_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "da364c56-3a9a-544e-89ed-e20562c7f2ab",
+      "name": "Source place",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2080,
+        -600
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "toriTravelGeocod"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "46c1a843-258b-51cb-a129-b8d13d8d232f",
+      "name": "Geocode source",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2340,
+        -600
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1b5bfde3-cc4a-5d95-8469-8c43b4f6a02e",
+              "name": "query",
+              "value": "={{ $('Validate travel details').first().json.fields.destination_text }}",
+              "type": "string"
+            },
+            {
+              "id": "db2fdb69-9c14-5f84-9a54-ea9b5a50b085",
+              "name": "user_id",
+              "value": "={{ $('Validate travel details').first().json.user_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "aa18af50-647a-57b7-8a36-c799d6dd0ab6",
+      "name": "Destination place",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2600,
+        -600
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "toriTravelGeocod"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "cc78f37c-ba8d-5bbc-8dcc-755ed23b40b4",
+      "name": "Geocode destination",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2860,
+        -600
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Both places must resolve to one clear point. Coordinates stay in the backend.\nconst v = $('Validate travel details').first().json;\nconst src = $('Geocode source').first().json;\nconst dst = $json;\nconst user_id = v.user_id;\nconst f = { ...v.fields };\nif (src.status === 'error' || dst.status === 'error' || !src.status || !dst.status) {\n  return { json: { route: 'reply', user_id, kind: 'reply',\n    text: \"Sorry, I couldn't check those places right now. Please send your trip again in a minute 🙏\" } };\n}\nconst ask = [];\nfor (const [g, key, label] of [[src, 'source_text', 'starting point'], [dst, 'destination_text', 'destination']]) {\n  if (g.status === 'not_found') {\n    ask.push(`I couldn't find \"${f[key]}\" on the map. What's your ${label}? An area or landmark with the city works best (e.g. \"Jhunsi, Prayagraj\").`);\n    f[key] = null;\n  } else if (g.status === 'ambiguous') {\n    ask.push(`There's more than one \"${f[key]}\". Which city or district is your ${label} in?`);\n  }\n}\nif (!ask.length) {\n  const rad = (d) => d * Math.PI / 180;\n  const a = Math.sin(rad(dst.lat - src.lat) / 2) ** 2 + Math.cos(rad(src.lat)) * Math.cos(rad(dst.lat)) * Math.sin(rad(dst.lng - src.lng) / 2) ** 2;\n  if (2 * 6371 * Math.asin(Math.sqrt(a)) < 0.3) {\n    ask.push('Your start and destination look like the same place. Where are you going?');\n    f.destination_text = null;\n  }\n}\nif (ask.length) return { json: { route: 'ask', user_id, kind: 'reply', fields: f, text: ask.join('\\n') } };\nreturn { json: { route: 'save', user_id, fields: {\n  ...f, source_lat: src.lat, source_lng: src.lng, destination_lat: dst.lat, destination_lng: dst.lng } } };\n"
+      },
+      "id": "b462be9d-daf3-5677-97b4-aaf6ebc4d33e",
+      "name": "Check places",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        -600
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 3,
+        "output": "={{ [\"save\", \"ask\", \"reply\"].indexOf($json.route) }}"
+      },
+      "id": "89b26cc5-0c5f-55d4-a57b-8bc4e388c06f",
+      "name": "Places route",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        3380,
+        -600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.travel_activate_intent($1::uuid, $2::jsonb, $3::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.user_id, JSON.stringify($json.fields), JSON.stringify({ max_source_km: $env.TRAVEL_MAX_SOURCE_DISTANCE_KM, max_destination_km: $env.TRAVEL_MAX_DESTINATION_DISTANCE_KM, max_time_diff_min: $env.TRAVEL_MAX_TIME_DIFFERENCE_MINUTES, max_candidates: $env.TRAVEL_MAX_MATCH_CANDIDATES, w_source: $env.TRAVEL_SCORE_WEIGHT_SOURCE, w_destination: $env.TRAVEL_SCORE_WEIGHT_DESTINATION, w_time: $env.TRAVEL_SCORE_WEIGHT_TIME, consent_timeout_min: $env.TRAVEL_CONSENT_TIMEOUT_MINUTES, intent_grace_min: $env.TRAVEL_INTENT_GRACE_MINUTES, draft_ttl_min: $env.TRAVEL_DRAFT_TTL_MINUTES, max_days_ahead: $env.TRAVEL_MAX_DAYS_AHEAD, max_changes_per_hour: $env.TRAVEL_MAX_REQUEST_CHANGES_PER_HOUR, max_changes_per_day: $env.TRAVEL_MAX_REQUEST_CHANGES_PER_DAY, decline_cooldown_days: $env.TRAVEL_DECLINE_COOLDOWN_DAYS, geocode_cache_days: $env.TRAVEL_GEOCODE_CACHE_DAYS }) ] }}"
+        }
+      },
+      "id": "0da3909a-1fbb-5e5c-8387-934f7414c8e6",
+      "name": "Save travel intent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3640,
+        -800
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// notifications decided by the database; workflow 11 renders and sends them\nreturn $('Save travel intent').all().flatMap((i) => i.json.r.notifications || []).map((n) => ({ json: n }));\n"
+      },
+      "id": "31f3b605-da44-57d2-a96e-2d2e0052f281",
+      "name": "Messages (intent)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3900,
+        -800
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "toriTravelNotify"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "c2289316-f176-5232-8b54-776a415949f4",
+      "name": "Notify (intent)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4160,
+        -800
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const ids = [...new Set($('Save travel intent').all().flatMap((i) => i.json.r.rematch || []))];\nreturn ids.map((intent_id) => ({ json: { intent_id } }));\n"
+      },
+      "id": "82825cc3-5158-5c64-b6d8-cb46698f4cf3",
+      "name": "Requests to match (intent)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4420,
+        -800
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "toriTravelMatchs"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "65ceaeda-f3bd-565b-922e-4b20815cbecf",
+      "name": "Find matches (intent)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4680,
+        -800
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.travel_cancel_intent($1::uuid) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.user_id ] }}"
+        }
+      },
+      "id": "f90f07c9-3501-5e6e-bbd0-c54f97b3012a",
+      "name": "Cancel travel request",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1300,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// notifications decided by the database; workflow 11 renders and sends them\nreturn $('Cancel travel request').all().flatMap((i) => i.json.r.notifications || []).map((n) => ({ json: n }));\n"
+      },
+      "id": "a3daca27-f214-53f2-9783-0d587b92e5bb",
+      "name": "Messages (cancel)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        400
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "toriTravelNotify"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "02945f67-bd93-5131-a435-c6c895f586f6",
+      "name": "Notify (cancel)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1820,
+        400
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const ids = [...new Set($('Cancel travel request').all().flatMap((i) => i.json.r.rematch || []))];\nreturn ids.map((intent_id) => ({ json: { intent_id } }));\n"
+      },
+      "id": "8a22f767-16e0-5a7c-bc33-75ca3b7d649a",
+      "name": "Requests to match (cancel)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "toriTravelMatchs"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "0df117e3-7100-5995-931a-04371a32b8de",
+      "name": "Find matches (cancel)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2340,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "toriTravelConsnt"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "d1880baf-c314-5b79-91e8-c746be277b58",
+      "name": "Consent, block or report",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        800
+      ]
+    }
+  ],
+  "connections": {
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "Register message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register message": {
+      "main": [
+        [
+          {
+            "node": "New message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New message?": {
+      "main": [
+        [
+          {
+            "node": "Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route": {
+      "main": [
+        [
+          {
+            "node": "Travel route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Travel route": {
+      "main": [
+        [
+          {
+            "node": "Load travel request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cancel travel request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Consent, block or report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load travel request": {
+      "main": [
+        [
+          {
+            "node": "Validate travel details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate travel details": {
+      "main": [
+        [
+          {
+            "node": "Details route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Details route": {
+      "main": [
+        [
+          {
+            "node": "Source place",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save draft": {
+      "main": [
+        [
+          {
+            "node": "Send reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Source place": {
+      "main": [
+        [
+          {
+            "node": "Geocode source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Geocode source": {
+      "main": [
+        [
+          {
+            "node": "Destination place",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Destination place": {
+      "main": [
+        [
+          {
+            "node": "Geocode destination",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Geocode destination": {
+      "main": [
+        [
+          {
+            "node": "Check places",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check places": {
+      "main": [
+        [
+          {
+            "node": "Places route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Places route": {
+      "main": [
+        [
+          {
+            "node": "Save travel intent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save travel intent": {
+      "main": [
+        [
+          {
+            "node": "Messages (intent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Messages (intent)": {
+      "main": [
+        [
+          {
+            "node": "Notify (intent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify (intent)": {
+      "main": [
+        [
+          {
+            "node": "Requests to match (intent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Requests to match (intent)": {
+      "main": [
+        [
+          {
+            "node": "Find matches (intent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel travel request": {
+      "main": [
+        [
+          {
+            "node": "Messages (cancel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Messages (cancel)": {
+      "main": [
+        [
+          {
+            "node": "Notify (cancel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify (cancel)": {
+      "main": [
+        [
+          {
+            "node": "Requests to match (cancel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Requests to match (cancel)": {
+      "main": [
+        [
+          {
+            "node": "Find matches (cancel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Asia/Kolkata"
+  },
+  "pinData": {},
+  "tags": [],
+  "active": false
+}

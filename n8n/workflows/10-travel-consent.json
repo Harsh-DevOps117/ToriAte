@@ -1,0 +1,179 @@
+{
+  "id": "toriTravelConsnt",
+  "name": "Tori 10 · Travel · consent",
+  "description": "Yes / no / block / report on a travel match: travel_respond() decides, then notify and re-match.",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "705d8c12-44c8-5ac8-8318-33356ba210a9",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.travel_respond($1::uuid, nullif($2, '')::uuid, $3, nullif($4, ''), $5::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.user_id, $json.match_id || '', $json.action, $json.reason || '', JSON.stringify({ max_source_km: $env.TRAVEL_MAX_SOURCE_DISTANCE_KM, max_destination_km: $env.TRAVEL_MAX_DESTINATION_DISTANCE_KM, max_time_diff_min: $env.TRAVEL_MAX_TIME_DIFFERENCE_MINUTES, max_candidates: $env.TRAVEL_MAX_MATCH_CANDIDATES, w_source: $env.TRAVEL_SCORE_WEIGHT_SOURCE, w_destination: $env.TRAVEL_SCORE_WEIGHT_DESTINATION, w_time: $env.TRAVEL_SCORE_WEIGHT_TIME, consent_timeout_min: $env.TRAVEL_CONSENT_TIMEOUT_MINUTES, intent_grace_min: $env.TRAVEL_INTENT_GRACE_MINUTES, draft_ttl_min: $env.TRAVEL_DRAFT_TTL_MINUTES, max_days_ahead: $env.TRAVEL_MAX_DAYS_AHEAD, max_changes_per_hour: $env.TRAVEL_MAX_REQUEST_CHANGES_PER_HOUR, max_changes_per_day: $env.TRAVEL_MAX_REQUEST_CHANGES_PER_DAY, decline_cooldown_days: $env.TRAVEL_DECLINE_COOLDOWN_DAYS, geocode_cache_days: $env.TRAVEL_GEOCODE_CACHE_DAYS }) ] }}"
+        }
+      },
+      "id": "9f187ef1-1f8c-5a5c-aebd-64cc820cdbb7",
+      "name": "Record answer",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// notifications decided by the database; workflow 11 renders and sends them\nreturn $('Record answer').all().flatMap((i) => i.json.r.notifications || []).map((n) => ({ json: n }));\n"
+      },
+      "id": "59711e1a-d3bb-56eb-9ebf-51cb02705f25",
+      "name": "Messages (consent)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "toriTravelNotify"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "8e10838d-ee35-5464-b620-2b3918c84611",
+      "name": "Notify (consent)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        780,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const ids = [...new Set($('Record answer').all().flatMap((i) => i.json.r.rematch || []))];\nreturn ids.map((intent_id) => ({ json: { intent_id } }));\n"
+      },
+      "id": "4ef8815e-ab56-51ac-9e3f-31a3d3f4af4b",
+      "name": "Requests to match (consent)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "toriTravelMatchs"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "09c3eec6-1e1a-50df-86b6-80c6a2336b73",
+      "name": "Find matches (consent)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "Record answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record answer": {
+      "main": [
+        [
+          {
+            "node": "Messages (consent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Messages (consent)": {
+      "main": [
+        [
+          {
+            "node": "Notify (consent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify (consent)": {
+      "main": [
+        [
+          {
+            "node": "Requests to match (consent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Requests to match (consent)": {
+      "main": [
+        [
+          {
+            "node": "Find matches (consent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Asia/Kolkata"
+  },
+  "pinData": {},
+  "tags": [],
+  "active": false
+}

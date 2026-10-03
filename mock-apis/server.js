@@ -13,7 +13,8 @@ function reset() {
     calendarCalls: [],
     whatsapp: [],
     llm: { requests: 0, last: null },
-    faults: { calendar_fail_next: 0, whatsapp_fail_next: 0, llm_fail_next: 0 },
+    geocode: { requests: 0 },
+    faults: { calendar_fail_next: 0, whatsapp_fail_next: 0, llm_fail_next: 0, geocode_fail_next: 0 },
   };
 }
 reset();
@@ -177,11 +178,43 @@ function whatsapp(req, res, path, raw) {
       return send(res, 400, { error: { message: 'Param text cannot have new-line/tab characters', code: 132018 } });
     }
     text = `[template ${body.template.name}] ` + params.join(' | ');
+  } else if (body.type === 'interactive' && body.interactive?.type === 'button') {
+    const buttons = body.interactive.action?.buttons || [];
+    const body_ = body.interactive.body?.text || '';
+    if (!buttons.length || buttons.length > 3 || body_.length > 1024
+        || buttons.some((b) => !b.reply?.id || !b.reply?.title || b.reply.title.length > 20)) {
+      return send(res, 400, { error: { message: '(#131009) Parameter value is not valid', code: 131009 } });
+    }
+    text = body_ + '\n' + buttons.map((b) => `[${b.reply.title}]`).join(' ');
+  } else if (body.type === 'interactive' && body.interactive?.type === 'list') {
+    const sections = body.interactive.action?.sections || [];
+    const rows = sections.flatMap((x) => x.rows || []);
+    if (!rows.length || rows.length > 10 || (body.interactive.action?.button || '').length > 20
+        || sections.some((x) => (x.title || '').length > 24)
+        || rows.some((r) => !r.id || [...(r.title || '')].length > 24 || [...(r.description || '')].length > 72)) {
+      return send(res, 400, { error: { message: '(#131009) Parameter value is not valid (list limits)', code: 131009 } });
+    }
+    text = (body.interactive.body?.text || '') + '\n' + sections.map((x) => `${x.title}: ` + x.rows.map((r) => r.title).join(', ')).join('\n');
+  } else if (body.type === 'interactive' && body.interactive?.type === 'flow') {
+    const fp = body.interactive.action?.parameters || {};
+    if (body.interactive.action?.name !== 'flow' || !fp.flow_id || !fp.flow_cta || !fp.flow_token || fp.flow_message_version !== '3') {
+      return send(res, 400, { error: { message: '(#100) Invalid flow parameters', code: 100 } });
+    }
+    text = (body.interactive.body?.text || '') + `\n[form: ${fp.flow_cta}]`;
   } else {
     return send(res, 400, { error: { message: '(#100) Invalid parameter: type', code: 100 } });
   }
   const id = 'wamid.MOCK' + crypto.randomBytes(8).toString('hex').toUpperCase();
-  state.whatsapp.push({ id, at: new Date().toISOString(), phoneNumberId: m[2], to: body.to, type: body.type, text });
+  // buttons: reply IDs from interactive messages and template quick replies, so tests can "tap" them
+  const buttons = body.interactive?.type === 'button'
+    ? body.interactive.action.buttons.map((b) => ({ id: b.reply.id, title: b.reply.title }))
+    : body.interactive?.type === 'list'
+    ? body.interactive.action.sections.flatMap((x) => x.rows).map((r) => ({ id: r.id, title: r.title }))
+    : body.interactive?.type === 'flow' ? []
+    : (body.template?.components || []).filter((c) => c.type === 'button')
+        .map((c) => ({ id: c.parameters?.[0]?.payload, title: 'quick reply ' + c.index }));
+  const flow = body.interactive?.type === 'flow' ? body.interactive.action.parameters : undefined;
+  state.whatsapp.push({ id, at: new Date().toISOString(), phoneNumberId: m[2], to: body.to, type: body.type, text, buttons, flow });
   send(res, 200, { messaging_product: 'whatsapp', contacts: [{ input: body.to, wa_id: body.to }], messages: [{ id }] });
 }
 
@@ -269,6 +302,44 @@ function groq(req, res, path, raw) {
   });
 }
 
+// Nominatim-shaped geocoder for the travel partner workflows (TRAVEL_GEOCODER_URL=http://mock-apis:8090/geocode/search).
+// Coordinates are illustrative. "Civil Lines" exists in several cities, so without a city it is ambiguous.
+const PLACES = [
+  ['jhunsi', 'prayagraj', 25.4374, 81.9067],
+  ['naini', 'prayagraj', 25.3870, 81.8640],
+  ['chungi', 'prayagraj', 25.4300, 81.8850],
+  ['civil lines', 'prayagraj', 25.4536, 81.8340],
+  ['civil lines', 'kanpur', 26.4780, 80.3470],
+  ['civil lines', 'delhi', 28.6814, 77.2226],
+  ['prayagraj junction', 'prayagraj', 25.4460, 81.8250],
+  ['koramangala', 'bangalore', 12.9352, 77.6245],
+  ['indiranagar', 'bangalore', 12.9784, 77.6408],
+  ['whitefield', 'bangalore', 12.9698, 77.7500],
+  ['hsr layout', 'bangalore', 12.9116, 77.6474],
+];
+const CITY_ALIASES = { allahabad: 'prayagraj', bengaluru: 'bangalore', 'new delhi': 'delhi' };
+
+function geocode(req, res, url) {
+  state.geocode.requests++;
+  if (state.faults.geocode_fail_next > 0) {
+    state.faults.geocode_fail_next--;
+    return send(res, 503, { error: 'Service unavailable (injected)' });
+  }
+  if (!req.headers['user-agent']) return send(res, 403, { error: 'User-Agent required' });
+  let q = String(url.searchParams.get('q') || '').toLowerCase();
+  for (const [a, c] of Object.entries(CITY_ALIASES)) q = q.replaceAll(a, c);
+  const cities = new Set(PLACES.map((p) => p[1]).filter((c) => q.includes(c)));
+  let hits = PLACES.filter(([name, city]) => q.includes(name) && (!cities.size || cities.has(city)));
+  // prefer the longest name ("prayagraj junction" over a bare city match)
+  const longest = Math.max(0, ...hits.map((h) => h[0].length));
+  hits = hits.filter((h) => h[0].length === longest);
+  send(res, 200, hits.map(([name, city, lat, lng], i) => ({
+    place_id: 1000 + i, lat: String(lat), lon: String(lng),
+    display_name: `${name.replace(/\b\w/g, (c) => c.toUpperCase())}, ${city[0].toUpperCase() + city.slice(1)}, India`,
+    importance: 0.5,
+  })));
+}
+
 function snapshot() {
   const calendars = {};
   for (const [id, events] of Object.entries(state.calendars)) {
@@ -280,6 +351,7 @@ function snapshot() {
     calendarCalls: state.calendarCalls.length,
     whatsapp: state.whatsapp,
     llm: state.llm,
+    geocode: state.geocode,
     tokenRequests: state.tokenRequests,
     faults: state.faults,
   };
@@ -333,6 +405,7 @@ http.createServer(async (req, res) => {
     if (path.startsWith('/google/calendar/v3/')) return googleCalendar(req, res, path, raw);
     if (path.startsWith('/whatsapp/')) return whatsapp(req, res, path, raw);
     if (path.startsWith('/groq/')) return groq(req, res, path, raw);
+    if (path === '/geocode/search' && req.method === 'GET') return geocode(req, res, url);
     send(res, 404, { error: 'not found' });
   } catch (err) {
     console.error(err);

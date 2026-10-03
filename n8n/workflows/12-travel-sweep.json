@@ -1,0 +1,186 @@
+{
+  "id": "toriTravelSweep1",
+  "name": "Tori 12 · Travel · sweep",
+  "description": "Every 10 minutes: expire unanswered matches, past trips and abandoned drafts; tell whoever was waiting; look for new candidates.",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "id": "54556c7c-6dc7-5a30-8143-2d5fd358a021",
+      "name": "Every 10 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.travel_sweep($1::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify({ max_source_km: $env.TRAVEL_MAX_SOURCE_DISTANCE_KM, max_destination_km: $env.TRAVEL_MAX_DESTINATION_DISTANCE_KM, max_time_diff_min: $env.TRAVEL_MAX_TIME_DIFFERENCE_MINUTES, max_candidates: $env.TRAVEL_MAX_MATCH_CANDIDATES, w_source: $env.TRAVEL_SCORE_WEIGHT_SOURCE, w_destination: $env.TRAVEL_SCORE_WEIGHT_DESTINATION, w_time: $env.TRAVEL_SCORE_WEIGHT_TIME, consent_timeout_min: $env.TRAVEL_CONSENT_TIMEOUT_MINUTES, intent_grace_min: $env.TRAVEL_INTENT_GRACE_MINUTES, draft_ttl_min: $env.TRAVEL_DRAFT_TTL_MINUTES, max_days_ahead: $env.TRAVEL_MAX_DAYS_AHEAD, max_changes_per_hour: $env.TRAVEL_MAX_REQUEST_CHANGES_PER_HOUR, max_changes_per_day: $env.TRAVEL_MAX_REQUEST_CHANGES_PER_DAY, decline_cooldown_days: $env.TRAVEL_DECLINE_COOLDOWN_DAYS, geocode_cache_days: $env.TRAVEL_GEOCODE_CACHE_DAYS }) ] }}"
+        }
+      },
+      "id": "2c6206e9-11e5-5e04-8a36-306730f7a1fd",
+      "name": "Expire trips and matches",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// notifications decided by the database; workflow 11 renders and sends them\nreturn $('Expire trips and matches').all().flatMap((i) => i.json.r.notifications || []).map((n) => ({ json: n }));\n"
+      },
+      "id": "6cf986b6-9f98-57b5-9f80-7e489fd7e1a8",
+      "name": "Messages (sweep)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "toriTravelNotify"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "04fce8da-7f84-577b-8db0-7d03d7c492dc",
+      "name": "Notify (sweep)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        780,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const ids = [...new Set($('Expire trips and matches').all().flatMap((i) => i.json.r.rematch || []))];\nreturn ids.map((intent_id) => ({ json: { intent_id } }));\n"
+      },
+      "id": "219c7bc7-466d-5b7f-abe4-ff39c7245574",
+      "name": "Requests to match (sweep)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "toriTravelMatchs"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "38901058-9060-5389-96c2-de2f4d0582fd",
+      "name": "Find matches (sweep)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Every 10 minutes": {
+      "main": [
+        [
+          {
+            "node": "Expire trips and matches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expire trips and matches": {
+      "main": [
+        [
+          {
+            "node": "Messages (sweep)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Messages (sweep)": {
+      "main": [
+        [
+          {
+            "node": "Notify (sweep)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify (sweep)": {
+      "main": [
+        [
+          {
+            "node": "Requests to match (sweep)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Requests to match (sweep)": {
+      "main": [
+        [
+          {
+            "node": "Find matches (sweep)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Asia/Kolkata"
+  },
+  "pinData": {},
+  "tags": [],
+  "active": false
+}

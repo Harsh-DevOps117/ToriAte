@@ -14,10 +14,7 @@
       "name": "About",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [
-        -460,
-        -320
-      ]
+      "position": [-460, -320]
     },
     {
       "parameters": {
@@ -31,10 +28,7 @@
       "name": "Postmark inbound",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
-      "position": [
-        -440,
-        0
-      ],
+      "position": [-440, 0],
       "webhookId": "5b0f3f5e-8d1e-4d7a-9a3c-0b1f2e3d4c01",
       "credentials": {
         "httpBasicAuth": {
@@ -52,10 +46,7 @@
       "name": "Normalize email",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        -220,
-        0
-      ]
+      "position": [-220, 0]
     },
     {
       "parameters": {
@@ -69,10 +60,7 @@
       "name": "Store raw email",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [
-        0,
-        0
-      ],
+      "position": [0, 0],
       "credentials": {
         "postgres": {
           "id": "toriPostgres0001",
@@ -92,10 +80,7 @@
       "name": "Reply 200 to provider",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
-      "position": [
-        220,
-        0
-      ]
+      "position": [220, 0]
     },
     {
       "parameters": {
@@ -107,10 +92,7 @@
       "name": "Route",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
-      "position": [
-        440,
-        0
-      ]
+      "position": [440, 0]
     },
     {
       "parameters": {
@@ -137,10 +119,7 @@
       "name": "Parse + save booking (02)",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
-      "position": [
-        680,
-        -140
-      ]
+      "position": [680, -140]
     },
     {
       "parameters": {
@@ -167,10 +146,7 @@
       "name": "Send WhatsApp now (03)",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
-      "position": [
-        680,
-        40
-      ]
+      "position": [680, 40]
     },
     {
       "parameters": {},
@@ -178,10 +154,7 @@
       "name": "Ignored (stored + alerted)",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [
-        680,
-        200
-      ]
+      "position": [680, 200]
     }
   ],
   "connections": {

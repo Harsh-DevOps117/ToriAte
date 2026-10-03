@@ -1,0 +1,292 @@
+{
+  "id": "toriTravelNotify",
+  "name": "Tori 11 · Travel · notify",
+  "description": "Every travel WhatsApp message: reads what may be shared (travel_notification), renders the text, sends it (text, buttons, or the approved template outside the 24-hour window) and logs the result.",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "e8ff73a5-c9c1-5cd4-a4aa-e3e435f56ed5",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cb3e9240-b936-599c-a199-a395c5970ccc",
+              "leftValue": "={{ !!$json.user_id && !!$json.kind }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "56bb3e67-d8ae-526d-945d-92d0a39a8ce5",
+      "name": "Has recipient?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.travel_notification($1::uuid, nullif($2, '')::uuid) AS n, $1 AS user_id, $2 AS match_id, $3 AS kind, $4 AS text;",
+        "options": {
+          "queryReplacement": "={{ [ $json.user_id, $json.match_id || '', $json.kind, $json.text || '' ] }}"
+        }
+      },
+      "id": "d393572b-cec1-5a73-8f3c-8b70ae3be04b",
+      "name": "Recipient",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        520,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// All travel message wording lives here. `n` comes from travel_notification(), which only returns\n// the person's own trip, the other trip's rounded departure time and, once BOTH said yes, the other\n// person's first name and number.\nconst ZONE = 'Asia/Kolkata';\nconst { n, user_id, kind, match_id, text } = $json;\nconst skip = (reason) => ({ json: { send: false, user_id, kind, match_id, reason } });\nif (!n || !n.wa_id) return skip('unknown_user');\n\nconst now = DateTime.now().setZone(ZONE);\nconst day = (iso) => {\n  if (!iso) return '';\n  const d = DateTime.fromISO(String(iso).slice(0, 10), { zone: ZONE });\n  // always show the date too, so a wrong day is obvious (\"tomorrow\" said at 2 AM is ambiguous)\n  const date = d.toFormat('ccc d LLL');\n  return d.hasSame(now, 'day') ? `today (${date})` : d.hasSame(now.plus({ days: 1 }), 'day') ? `tomorrow (${date})` : 'on ' + date;\n};\nconst clock = (hhmm) => {\n  if (!hhmm) return '';\n  const t = DateTime.fromFormat(String(hhmm).slice(0, 5), 'HH:mm');\n  return t.toFormat(t.minute ? 'h:mm a' : 'h a');\n};\nconst trip = n.my_source ? `${n.my_source} → ${n.my_destination}, ${day(n.my_date)} around ${clock(n.my_time)}` : 'your trip';\nconst yesNo = [{ id: 'tm_yes_' + match_id, title: 'Yes, connect' }, { id: 'tm_no_' + match_id, title: 'No thanks' }];\nconst looking = \"I'm still looking for someone else on your route 🔍\";\n\nconst M = {\n  reply: () => text,\n  trip_form: () => [(n.my_source || n.my_destination)\n    ? 'Got it 👍 Tap below to fill in the rest of your trip.'\n    : 'Sure! Tap below and tell me your trip: where from, where to, the day and roughly what time.', 'FORM'],\n  request_created: () => `Got it ✅ ${trip}.\\n\\nI'll look for someone travelling a similar route and message you here if I find a match. Nobody sees your number or exact locations unless you both agree to connect.\\n\\nTo stop, just say \"cancel my travel request\".`,\n  request_updated: () => `Updated ✅ ${trip}.\\n\\nI'm looking again with the new details 🔍`,\n  request_unchanged: () => `You already have this request: ${trip}. I'll message you as soon as I find someone 🔍`,\n  rate_limited: () => \"You've changed your travel request a lot in a short time. Please wait a while before changing it again 🙏\",\n  in_past: () => 'That time has already passed. When are you leaving? (e.g. tomorrow 6 PM)',\n  too_far: () => `That's too far ahead for me (up to ${Number($env.TRAVEL_MAX_DAYS_AHEAD) || 30} days). Which day are you travelling?`,\n  cancelled_ack: () => \"Done ✅ I've cancelled your travel partner request. Message me any time to start a new one.\",\n  nothing_to_cancel: () => \"You don't have an open travel partner request right now.\",\n  offer: () => [`Hi 👋\\n\\nWe found someone travelling a similar route around the same time.\\n\\nThey're starting from a nearby area and heading toward a similar destination, leaving around ${clock(n.their_time)} ${day(n.their_date)}.\\n\\nWould you like to connect?`, yesNo],\n  request_b: () => [`Hi 👋\\n\\nWe found someone travelling a similar route around the same time as your trip (${trip}).\\n\\nThey're leaving around ${clock(n.their_time)} and would like to connect with you. Would you like to connect?`, yesNo],\n  a_waiting: () => \"Great 👍 I've asked them. I'll message you as soon as they reply.\\n\\nYour number stays private unless you both say yes.\",\n  connected: () => n.their_wa_id && [`✅ You're connected!\\n\\n${n.their_name || 'Your travel partner'} also wants to travel together ${day(n.their_date)}, leaving around ${clock(n.their_time)}.\\n\\nSay hi 👉 https://wa.me/${n.their_wa_id}\\n\\nStay safe: meet in a busy public place, tell someone you trust about your trip, and never share OTPs or payment details. To report them, reply \"report\" and tell me what happened.`,\n    [{ id: 'tm_block_' + match_id, title: 'Block' }]],\n  declined_ack: () => \"No problem 👍 I won't connect you. Your request stays open, and I'll message you if someone else matches.\",\n  counterpart_declined: () => `They can't make it this time. Your request stays open — ${looking}`,\n  counterpart_timeout: () => `I didn't hear back from them, so I've closed that match. ${looking}`,\n  match_withdrawn: () => `That match is no longer available because their plans changed. ${looking}`,\n  match_unavailable: () => \"This match isn't available any more. I'll message you if I find someone else 🔍\",\n  already_connected: () => \"You're already connected ✅ Scroll up for their WhatsApp link.\",\n  nothing_pending: () => \"There's no match waiting for your answer right now. I'll message you as soon as I find someone 🔍\",\n  no_match_to_block: () => \"I couldn't find a recent travel match to block or report.\",\n  blocked_ack: () => \"Done 🚫 You won't be matched with this person again.\",\n  reported_ack: () => \"Thanks for telling us 🙏 We've recorded your report, and you won't be matched with this person again. If you ever feel unsafe, call 112.\",\n};\nif (!M[kind]) return skip('unknown_kind');\nlet body = M[kind]();\nif (!body) return skip(kind === 'connected' ? 'not_connected' : 'empty');\nconst [msg, buttons] = Array.isArray(body) ? body : [body, null];\n\nlet payload;\nif (!n.inside_window) {\n  // Outside WhatsApp's 24-hour window only an approved template may be sent\n  const tpl = $env.TRAVEL_MATCH_TEMPLATE;\n  if (!(tpl && (kind === 'offer' || kind === 'request_b'))) return skip('outside_24h_window');\n  payload = { messaging_product: 'whatsapp', to: n.wa_id, type: 'template', template: {\n    name: tpl, language: { code: $env.TRAVEL_TEMPLATE_LANG || 'en' },\n    components: [\n      { type: 'body', parameters: [{ type: 'text', text: clock(n.their_time) }, { type: 'text', text: day(n.their_date) }] },\n      { type: 'button', sub_type: 'quick_reply', index: '0', parameters: [{ type: 'payload', payload: 'tm_yes_' + match_id }] },\n      { type: 'button', sub_type: 'quick_reply', index: '1', parameters: [{ type: 'payload', payload: 'tm_no_' + match_id }] },\n    ] } };\n} else if (buttons === 'FORM') {\n  // WhatsApp Flow form (n8n/whatsapp-flows/travel_trip.json), pre-filled with what we already know\n  const today = now.startOf('day');\n  const parameters = {\n    flow_message_version: '3', flow_token: 'travel_trip', flow_id: $env.TRAVEL_TRIP_FLOW_ID,\n    flow_cta: 'Fill trip details', flow_action: 'navigate',\n    flow_action_payload: { screen: 'TRIP', data: {\n      source: n.my_source || '', destination: n.my_destination || '',\n      min_date: today.toISODate(), max_date: today.plus({ days: Number($env.TRAVEL_MAX_DAYS_AHEAD) || 30 }).toISODate() } },\n  };\n  if ($env.TRAVEL_TRIP_FLOW_MODE === 'draft') parameters.mode = 'draft';\n  payload = { messaging_product: 'whatsapp', to: n.wa_id, type: 'interactive', interactive: {\n    type: 'flow', body: { text: msg }, action: { name: 'flow', parameters } } };\n} else if (buttons) {\n  payload = { messaging_product: 'whatsapp', to: n.wa_id, type: 'interactive', interactive: {\n    type: 'button', body: { text: msg.slice(0, 1024) },\n    action: { buttons: buttons.map((b) => ({ type: 'reply', reply: b })) } } };\n} else {\n  payload = { messaging_product: 'whatsapp', to: n.wa_id, type: 'text', text: { preview_url: false, body: msg } };\n}\nreturn { json: { send: true, user_id, kind, match_id, payload } };\n"
+      },
+      "id": "10e46f7a-2646-566b-9527-35ef59760fff",
+      "name": "Render message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "97f8dd51-c445-5296-b6dc-358d9288a2dd",
+              "leftValue": "={{ $json.send }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "7453d8a9-f2ae-51ab-8bbd-9308fc8cd133",
+      "name": "Can send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.BOT_WHATSAPP_GRAPH_URL || 'https://graph.facebook.com/v19.0') + '/' + $env.BOT_WHATSAPP_PHONE_NUMBER_ID + '/messages' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "ba1fabde-db3d-5a3d-a35e-04483e555226",
+      "name": "Send WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        -200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "toriWhatsAppHdr1",
+          "name": "WhatsApp Cloud API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.travel_log($1, nullif($2, '')::uuid, NULL, nullif($3, '')::uuid, $4::jsonb) AS logged;",
+        "options": {
+          "queryReplacement": "={{ [ $json.statusCode === 200 ? 'travel.notification.sent' : 'travel.notification.failed', $('Render message').item.json.user_id, $('Render message').item.json.match_id || '', JSON.stringify({ kind: $('Render message').item.json.kind, http_status: $json.statusCode ?? null, error_code: $json.body?.error?.code ?? $json.error?.code ?? null }) ] }}"
+        }
+      },
+      "id": "7172f5f9-ee87-5982-8aff-b0d5e811e474",
+      "name": "Log delivery",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1560,
+        -200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.travel_log('travel.notification.skipped', nullif($1, '')::uuid, NULL, nullif($2, '')::uuid, $3::jsonb) AS logged;",
+        "options": {
+          "queryReplacement": "={{ [ $json.user_id, $json.match_id || '', JSON.stringify({ kind: $json.kind, reason: $json.reason }) ] }}"
+        }
+      },
+      "id": "c8251bd9-019d-5b48-bd69-886a54fbe091",
+      "name": "Log skipped",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1300,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "Has recipient?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has recipient?": {
+      "main": [
+        [
+          {
+            "node": "Recipient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recipient": {
+      "main": [
+        [
+          {
+            "node": "Render message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render message": {
+      "main": [
+        [
+          {
+            "node": "Can send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Can send?": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Log delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Asia/Kolkata"
+  },
+  "pinData": {},
+  "tags": [],
+  "active": false
+}

@@ -1,0 +1,148 @@
+{
+  "id": "toriTravelMatchs",
+  "name": "Tori 09 · Travel · find matches",
+  "description": "Runs travel_find_matches() for each TravelIntent and notifies the requester about the best candidate. Returns only { matchFound, matchId }.",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "75a503a4-7742-580a-840f-245896cae177",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.travel_find_matches($1::uuid, $2::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.intent_id, JSON.stringify({ max_source_km: $env.TRAVEL_MAX_SOURCE_DISTANCE_KM, max_destination_km: $env.TRAVEL_MAX_DESTINATION_DISTANCE_KM, max_time_diff_min: $env.TRAVEL_MAX_TIME_DIFFERENCE_MINUTES, max_candidates: $env.TRAVEL_MAX_MATCH_CANDIDATES, w_source: $env.TRAVEL_SCORE_WEIGHT_SOURCE, w_destination: $env.TRAVEL_SCORE_WEIGHT_DESTINATION, w_time: $env.TRAVEL_SCORE_WEIGHT_TIME, consent_timeout_min: $env.TRAVEL_CONSENT_TIMEOUT_MINUTES, intent_grace_min: $env.TRAVEL_INTENT_GRACE_MINUTES, draft_ttl_min: $env.TRAVEL_DRAFT_TTL_MINUTES, max_days_ahead: $env.TRAVEL_MAX_DAYS_AHEAD, max_changes_per_hour: $env.TRAVEL_MAX_REQUEST_CHANGES_PER_HOUR, max_changes_per_day: $env.TRAVEL_MAX_REQUEST_CHANGES_PER_DAY, decline_cooldown_days: $env.TRAVEL_DECLINE_COOLDOWN_DAYS, geocode_cache_days: $env.TRAVEL_GEOCODE_CACHE_DAYS }) ] }}"
+        }
+      },
+      "id": "b416e258-53e9-5e02-b43f-cc33e274666f",
+      "name": "Find matches",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// notifications decided by the database; workflow 11 renders and sends them\nreturn $('Find matches').all().flatMap((i) => i.json.r.notifications || []).map((n) => ({ json: n }));\n"
+      },
+      "id": "7970a914-4a0f-541d-96ca-1d85802e5286",
+      "name": "Messages (match)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "toriTravelNotify"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "d59fa87f-5a60-5db2-a193-baab823e1eba",
+      "name": "Notify (match)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        780,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// The only thing the matcher hands back: no places, distances or other users\nreturn $('Find matches').all().map((i) => ({ json: { matchFound: !!i.json.r.matchFound, matchId: i.json.r.matchId || null } }));\n"
+      },
+      "id": "238eb0d9-5572-5f60-830c-e762599ce9c0",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "Find matches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find matches": {
+      "main": [
+        [
+          {
+            "node": "Messages (match)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Messages (match)": {
+      "main": [
+        [
+          {
+            "node": "Notify (match)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify (match)": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Asia/Kolkata"
+  },
+  "pinData": {},
+  "tags": [],
+  "active": false
+}

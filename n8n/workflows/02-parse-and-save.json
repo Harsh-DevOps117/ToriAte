@@ -14,10 +14,7 @@
       "name": "About",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [
-        -460,
-        -360
-      ]
+      "position": [-460, -360]
     },
     {
       "parameters": {
@@ -27,10 +24,7 @@
       "name": "When called",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
-      "position": [
-        -440,
-        0
-      ]
+      "position": [-440, 0]
     },
     {
       "parameters": {
@@ -44,10 +38,7 @@
       "name": "Load email + venue",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [
-        -220,
-        0
-      ],
+      "position": [-220, 0],
       "credentials": {
         "postgres": {
           "id": "toriPostgres0001",
@@ -83,10 +74,7 @@
       "name": "Waiting for parser?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [
-        0,
-        0
-      ]
+      "position": [0, 0]
     },
     {
       "parameters": {
@@ -97,10 +85,7 @@
       "name": "Build parser request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        220,
-        -100
-      ]
+      "position": [220, -100]
     },
     {
       "parameters": {
@@ -126,10 +111,7 @@
       "name": "Groq · read email",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [
-        440,
-        -100
-      ],
+      "position": [440, -100],
       "credentials": {
         "httpHeaderAuth": {
           "id": "toriGroqApiKey01",
@@ -147,10 +129,7 @@
       "name": "Check parser answer",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        660,
-        -100
-      ]
+      "position": [660, -100]
     },
     {
       "parameters": {
@@ -164,10 +143,7 @@
       "name": "Save in one transaction",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [
-        880,
-        -100
-      ],
+      "position": [880, -100],
       "credentials": {
         "postgres": {
           "id": "toriPostgres0001",
@@ -200,10 +176,7 @@
       "name": "Update calendar + WhatsApp (03)",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
-      "position": [
-        1100,
-        -100
-      ]
+      "position": [1100, -100]
     },
     {
       "parameters": {},
@@ -211,10 +184,7 @@
       "name": "Already handled",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [
-        220,
-        120
-      ]
+      "position": [220, 120]
     }
   ],
   "connections": {

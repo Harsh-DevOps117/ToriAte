@@ -18,10 +18,7 @@
       "name": "Every minute",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [
-        -440,
-        0
-      ]
+      "position": [-440, 0]
     },
     {
       "parameters": {
@@ -33,10 +30,7 @@
       "name": "Check venues + stuck emails",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [
-        -220,
-        0
-      ],
+      "position": [-220, 0],
       "credentials": {
         "postgres": {
           "id": "toriPostgres0001",
@@ -53,10 +47,7 @@
       "name": "Emails to retry",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        0,
-        -100
-      ]
+      "position": [0, -100]
     },
     {
       "parameters": {
@@ -83,10 +74,7 @@
       "name": "Retry parse (02)",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
-      "position": [
-        220,
-        -100
-      ]
+      "position": [220, -100]
     },
     {
       "parameters": {
@@ -113,10 +101,7 @@
       "name": "Send alerts (03)",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
-      "position": [
-        0,
-        100
-      ]
+      "position": [0, 100]
     }
   ],
   "connections": {

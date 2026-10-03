@@ -14,10 +14,7 @@
       "name": "About",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [
-        -460,
-        -420
-      ]
+      "position": [-460, -420]
     },
     {
       "parameters": {
@@ -31,10 +28,7 @@
       "name": "POST admin/venues",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
-      "position": [
-        -440,
-        -200
-      ],
+      "position": [-440, -200],
       "webhookId": "5b0f3f5e-8d1e-4d7a-9a3c-0b1f2e3d4c11",
       "credentials": {
         "httpHeaderAuth": {
@@ -55,10 +49,7 @@
       "name": "Create venue",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [
-        -220,
-        -200
-      ],
+      "position": [-220, -200],
       "credentials": {
         "postgres": {
           "id": "toriPostgres0001",
@@ -79,10 +70,7 @@
       "name": "Venue created",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
-      "position": [
-        0,
-        -260
-      ]
+      "position": [0, -260]
     },
     {
       "parameters": {
@@ -96,10 +84,7 @@
       "name": "Venue error",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
-      "position": [
-        0,
-        -140
-      ]
+      "position": [0, -140]
     },
     {
       "parameters": {
@@ -113,10 +98,7 @@
       "name": "POST admin/calendar-test",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
-      "position": [
-        -440,
-        60
-      ],
+      "position": [-440, 60],
       "webhookId": "5b0f3f5e-8d1e-4d7a-9a3c-0b1f2e3d4c12",
       "credentials": {
         "httpHeaderAuth": {
@@ -137,10 +119,7 @@
       "name": "Queue calendar test",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [
-        -220,
-        60
-      ],
+      "position": [-220, 60],
       "credentials": {
         "postgres": {
           "id": "toriPostgres0001",
@@ -174,10 +153,7 @@
       "name": "Run dispatcher (03)",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
-      "position": [
-        0,
-        0
-      ],
+      "position": [0, 0],
       "alwaysOutputData": true
     },
     {
@@ -190,10 +166,7 @@
       "name": "Let a parallel run finish",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [
-        220,
-        0
-      ],
+      "position": [220, 0],
       "webhookId": "5b0f3f5e-8d1e-4d7a-9a3c-0b1f2e3d4c13",
       "executeOnce": true
     },
@@ -209,10 +182,7 @@
       "name": "Read result",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [
-        440,
-        0
-      ],
+      "position": [440, 0],
       "credentials": {
         "postgres": {
           "id": "toriPostgres0001",
@@ -233,10 +203,7 @@
       "name": "Calendar test result",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
-      "position": [
-        660,
-        0
-      ]
+      "position": [660, 0]
     },
     {
       "parameters": {
@@ -250,10 +217,7 @@
       "name": "Calendar test error",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
-      "position": [
-        0,
-        140
-      ]
+      "position": [0, 140]
     },
     {
       "parameters": {
@@ -267,10 +231,7 @@
       "name": "POST admin/reprocess",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
-      "position": [
-        -440,
-        320
-      ],
+      "position": [-440, 320],
       "webhookId": "5b0f3f5e-8d1e-4d7a-9a3c-0b1f2e3d4c14",
       "credentials": {
         "httpHeaderAuth": {
@@ -291,10 +252,7 @@
       "name": "Reset email",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [
-        -220,
-        320
-      ],
+      "position": [-220, 320],
       "credentials": {
         "postgres": {
           "id": "toriPostgres0001",
@@ -328,10 +286,7 @@
       "name": "Parse again (02)",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
-      "position": [
-        0,
-        260
-      ],
+      "position": [0, 260],
       "alwaysOutputData": true
     },
     {
@@ -346,10 +301,7 @@
       "name": "Email status",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [
-        220,
-        260
-      ],
+      "position": [220, 260],
       "credentials": {
         "postgres": {
           "id": "toriPostgres0001",
@@ -370,10 +322,7 @@
       "name": "Reprocess result",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
-      "position": [
-        440,
-        260
-      ]
+      "position": [440, 260]
     },
     {
       "parameters": {
@@ -387,10 +336,7 @@
       "name": "Reprocess error",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
-      "position": [
-        0,
-        400
-      ]
+      "position": [0, 400]
     }
   ],
   "connections": {

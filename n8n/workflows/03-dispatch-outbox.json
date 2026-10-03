@@ -14,10 +14,7 @@
       "name": "About",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [
-        -460,
-        -400
-      ]
+      "position": [-460, -400]
     },
     {
       "parameters": {
@@ -34,10 +31,7 @@
       "name": "Every 30 seconds",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [
-        -440,
-        -60
-      ]
+      "position": [-440, -60]
     },
     {
       "parameters": {
@@ -47,10 +41,7 @@
       "name": "When called",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
-      "position": [
-        -440,
-        120
-      ]
+      "position": [-440, 120]
     },
     {
       "parameters": {
@@ -62,10 +53,7 @@
       "name": "Claim due jobs",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [
-        -200,
-        40
-      ],
+      "position": [-200, 40],
       "credentials": {
         "postgres": {
           "id": "toriPostgres0001",
@@ -84,10 +72,7 @@
       "name": "Channel",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
-      "position": [
-        20,
-        40
-      ]
+      "position": [20, 40]
     },
     {
       "parameters": {
@@ -98,10 +83,7 @@
       "name": "Google Calendar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        260,
-        -60
-      ]
+      "position": [260, -60]
     },
     {
       "parameters": {
@@ -112,10 +94,7 @@
       "name": "Build WhatsApp message",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        260,
-        140
-      ]
+      "position": [260, 140]
     },
     {
       "parameters": {
@@ -141,10 +120,7 @@
       "name": "WhatsApp · send",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [
-        480,
-        140
-      ],
+      "position": [480, 140],
       "credentials": {
         "httpHeaderAuth": {
           "id": "toriWhatsAppTokn",
@@ -162,10 +138,7 @@
       "name": "Check WhatsApp answer",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        700,
-        140
-      ]
+      "position": [700, 140]
     },
     {
       "parameters": {
@@ -179,10 +152,7 @@
       "name": "Complete job",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [
-        940,
-        40
-      ],
+      "position": [940, 40],
       "credentials": {
         "postgres": {
           "id": "toriPostgres0001",

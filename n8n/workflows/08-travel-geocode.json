@@ -1,0 +1,494 @@
+{
+  "id": "toriTravelGeocod",
+  "name": "Tori 08 · Travel · geocode",
+  "description": "Place text → lat/lng. Postgres cache first, then the provider in TRAVEL_GEOCODER (nominatim or google). Returns ok / not_found / ambiguous / error.",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "810ab1c5-fdbd-555c-a786-58a52f661b92",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const provider = String($env.TRAVEL_GEOCODER || 'nominatim').toLowerCase() === 'google' ? 'google' : 'nominatim';\nconst query = String($json.query || '').trim().replace(/\\s+/g, ' ').slice(0, 200);\nconst norm = query.toLowerCase().normalize('NFKD').replace(/[^\\p{L}\\p{N}]+/gu, ' ').trim();\nreturn { json: { user_id: $json.user_id || '', query, provider, key: provider + ':' + norm } };\n"
+      },
+      "id": "8a471b96-9b52-55bb-bad3-9a29c7f39bf4",
+      "name": "Normalise place",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.travel_geocode_lookup($1, nullif($2, '')::uuid, $3::jsonb) AS hit;",
+        "options": {
+          "queryReplacement": "={{ [ $json.key, $json.user_id, JSON.stringify({ max_source_km: $env.TRAVEL_MAX_SOURCE_DISTANCE_KM, max_destination_km: $env.TRAVEL_MAX_DESTINATION_DISTANCE_KM, max_time_diff_min: $env.TRAVEL_MAX_TIME_DIFFERENCE_MINUTES, max_candidates: $env.TRAVEL_MAX_MATCH_CANDIDATES, w_source: $env.TRAVEL_SCORE_WEIGHT_SOURCE, w_destination: $env.TRAVEL_SCORE_WEIGHT_DESTINATION, w_time: $env.TRAVEL_SCORE_WEIGHT_TIME, consent_timeout_min: $env.TRAVEL_CONSENT_TIMEOUT_MINUTES, intent_grace_min: $env.TRAVEL_INTENT_GRACE_MINUTES, draft_ttl_min: $env.TRAVEL_DRAFT_TTL_MINUTES, max_days_ahead: $env.TRAVEL_MAX_DAYS_AHEAD, max_changes_per_hour: $env.TRAVEL_MAX_REQUEST_CHANGES_PER_HOUR, max_changes_per_day: $env.TRAVEL_MAX_REQUEST_CHANGES_PER_DAY, decline_cooldown_days: $env.TRAVEL_DECLINE_COOLDOWN_DAYS, geocode_cache_days: $env.TRAVEL_GEOCODE_CACHE_DAYS }) ] }}"
+        }
+      },
+      "id": "be6f7d1f-42ab-5553-a0b4-1fc276aaa582",
+      "name": "Look up cache",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        520,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "70fa5407-537d-5085-99ab-3f728b7cf251",
+              "leftValue": "={{ !!$json.hit }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "77baa686-a4fe-5c95-a16a-0662ad69c458",
+      "name": "In cache?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { status: 'ok', lat: $json.hit.lat, lng: $json.hit.lng, cached: true } };\n"
+      },
+      "id": "16f045e9-d7b1-54b5-a835-957419501c62",
+      "name": "From cache",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $('Normalise place').first().json.provider === 'google' ? 0 : 1 }}"
+      },
+      "id": "0d7e4916-1e27-5097-965a-efbe2d9d40f1",
+      "name": "Provider",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1040,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.TRAVEL_GEOCODER_URL || 'https://maps.googleapis.com/maps/api/geocode/json' }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "address",
+              "value": "={{ $('Normalise place').first().json.query }}"
+            },
+            {
+              "name": "region",
+              "value": "={{ $env.TRAVEL_GEOCODER_COUNTRY || 'in' }}"
+            },
+            {
+              "name": "key",
+              "value": "={{ $env.TRAVEL_GEOCODER_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "a203c228-ebb5-5469-8dde-8971dc4c0395",
+      "name": "Google geocoding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.TRAVEL_GEOCODER_URL || 'https://nominatim.openstreetmap.org/search' }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $('Normalise place').first().json.query }}"
+            },
+            {
+              "name": "format",
+              "value": "jsonv2"
+            },
+            {
+              "name": "limit",
+              "value": "5"
+            },
+            {
+              "name": "countrycodes",
+              "value": "={{ $env.TRAVEL_GEOCODER_COUNTRY || 'in' }}"
+            },
+            {
+              "name": "accept-language",
+              "value": "en"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "={{ $env.TRAVEL_GEOCODER_USER_AGENT || 'ToriWhatsAppBot/1.0' }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "24fe5b9a-3af8-5fe1-bfd4-ad1ca7f877d7",
+      "name": "Nominatim search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        400
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ok = one clear place; ambiguous = the top results are far apart (e.g. \"Civil Lines\" exists in many cities)\nconst p = $('Normalise place').first().json;\nconst AMBIGUITY_KM = Number($env.TRAVEL_GEOCODE_AMBIGUITY_KM) || 25;\nlet places = null;\nif ($json.statusCode === 200) {\n  const b = $json.body;\n  if (p.provider === 'google') {\n    if (b && (b.status === 'OK' || b.status === 'ZERO_RESULTS')) {\n      places = (b.results || []).map((x) => ({ lat: x.geometry.location.lat, lng: x.geometry.location.lng, label: x.formatted_address }));\n    }\n  } else if (Array.isArray(b)) {\n    places = b.map((x) => ({ lat: Number(x.lat), lng: Number(x.lon), label: x.display_name }));\n  }\n}\nconst rad = (d) => d * Math.PI / 180;\nconst km = (a, b) => 2 * 6371 * Math.asin(Math.sqrt(Math.sin(rad(b.lat - a.lat) / 2) ** 2\n  + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2));\nlet status = 'ok';\nif (!places) status = 'error';\nelse if (!places.length) status = 'not_found';\nelse if (places.slice(1).some((x) => km(places[0], x) > AMBIGUITY_KM)) status = 'ambiguous';\nconst best = status === 'ok' ? places[0] : {};\nreturn { json: { status, lat: best.lat ?? null, lng: best.lng ?? null, label: best.label ?? null,\n                 provider: p.provider, key: p.key, user_id: p.user_id, http_status: $json.statusCode ?? null } };\n"
+      },
+      "id": "120e198e-ce79-55ef-a9ee-0497f5c98d2a",
+      "name": "Read results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4dd4cc54-a995-56a7-91dd-b31dfde0da4b",
+              "leftValue": "={{ $json.status === 'ok' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "5792d1ea-595a-5cfa-84d6-2feba22ce9e7",
+      "name": "Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1820,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.travel_geocode_store($1, $2, $3::float8, $4::float8, $5, nullif($6, '')::uuid);",
+        "options": {
+          "queryReplacement": "={{ [ $json.key, $json.provider, $json.lat, $json.lng, $json.label || \"\", $json.user_id ] }}"
+        }
+      },
+      "id": "2a112885-0c53-5096-92be-4b6d6b67a0a4",
+      "name": "Save to cache",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2080,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r = $('Read results').first().json;\nreturn [{ json: { status: 'ok', lat: r.lat, lng: r.lng, cached: false } }];\n"
+      },
+      "id": "556abd8a-81ea-5bb2-ace7-39d6c450208a",
+      "name": "Place found",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2340,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.travel_log('travel.geocode.failure', nullif($1, '')::uuid, NULL, NULL, $2::jsonb);",
+        "options": {
+          "queryReplacement": "={{ [ $json.user_id, JSON.stringify({ provider: $json.provider, status: $json.status, http_status: $json.http_status }) ] }}"
+        }
+      },
+      "id": "b887b866-a993-5dcf-a857-d576ed2bba07",
+      "name": "Log geocode failure",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2080,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{ json: { status: $('Read results').first().json.status } }];\n"
+      },
+      "id": "661ad787-f8c5-57c2-9ed1-312304a486ac",
+      "name": "Place not usable",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2340,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "Normalise place",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise place": {
+      "main": [
+        [
+          {
+            "node": "Look up cache",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Look up cache": {
+      "main": [
+        [
+          {
+            "node": "In cache?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "In cache?": {
+      "main": [
+        [
+          {
+            "node": "From cache",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Provider",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Provider": {
+      "main": [
+        [
+          {
+            "node": "Google geocoding",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nominatim search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google geocoding": {
+      "main": [
+        [
+          {
+            "node": "Read results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nominatim search": {
+      "main": [
+        [
+          {
+            "node": "Read results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read results": {
+      "main": [
+        [
+          {
+            "node": "Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Found?": {
+      "main": [
+        [
+          {
+            "node": "Save to cache",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log geocode failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to cache": {
+      "main": [
+        [
+          {
+            "node": "Place found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log geocode failure": {
+      "main": [
+        [
+          {
+            "node": "Place not usable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Asia/Kolkata"
+  },
+  "pinData": {},
+  "tags": [],
+  "active": false
+}

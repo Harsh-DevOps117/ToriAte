@@ -30,6 +30,7 @@ describes the bot.
 16. [Repository map](#16-repository-map)
 17. [What changed when District was added](#17-what-changed-when-district-was-added)
 18. [The WhatsApp bot and partner matching (workflow 06)](#18-the-whatsapp-bot-and-partner-matching-workflow-06)
+19. [Travel partner matching (workflows 07–12)](#19-travel-partner-matching-workflows-0712)
 
 ---
 
@@ -681,20 +682,25 @@ the 5 workflows by their fixed IDs, keeps only the portable fields, and writes t
 │   ├── migrations/002_functions.repeatable.sql  # all business logic + views
 │   ├── migrations/003_booking_sources.sql # multi-platform (Playo + District)
 │   ├── migrations/004_partner_matching.sql # WhatsApp bot: partner requests + matches
+│   ├── migrations/005_travel_matching.sql  # WhatsApp bot: travel intents, matches, blocks, reports, events
+│   ├── migrations/005_travel_functions.repeatable.sql # travel matching rules (section 19)
+│   ├── tests/travel_matching.sql          # SQL scenario tests for travel matching
 │   └── seed/dev_seed.sql                  # demo venue, owner, Ravi
 ├── n8n/
 │   ├── bootstrap/bootstrap.sh             # credentials + import + publish
 │   ├── bootstrap/make-credentials.js      # credentials JSON from env
 │   ├── bootstrap/setup-owner.js           # n8n login account
 │   ├── workflows/01…05-*.json             # the five email-pipeline workflows
-│   └── workflows/06-whatsapp-bot.json     # separate WhatsApp bot + partner matching (see README)
+│   ├── workflows/06-whatsapp-bot.json     # separate WhatsApp bot + partner matching (see README)
+│   └── workflows/07…12-travel-*.json      # travel partner matching sub-workflows (section 19)
 ├── mock-apis/server.js         # fake Google, WhatsApp, Groq + dashboard
 ├── fixtures/emails/*.json      # test emails
-├── plan/                       # WhatsApp bot: partner-matching design + build script
+├── plan/                       # WhatsApp bot: partner-matching design + build scripts (06, 07–12)
 └── scripts/
     ├── send-email.sh           # POST one fixture to the webhook
     ├── e2e.sh                  # full end-to-end suite
     ├── bot-tunnel.sh           # public HTTPS tunnel for the WhatsApp bot
+    ├── travel-e2e.sh           # travel matching tests in a throwaway stack (+ travel_e2e.py)
     └── export-workflows.sh     # n8n UI → Git
 ```
 
@@ -939,3 +945,160 @@ stateDiagram-v2
 - **Everything outside partner matching is still the original bot.** Booking, payments and cab share
   need Supabase locally (`BOT_SUPABASE_*`). Several of those paths have bugs: see section 10 of the
   design doc.
+
+---
+
+## 19. Travel partner matching (workflows 07–12)
+
+### 19.1 What it is
+
+People tell the bot where and when they are going ("Jhunsi to Naini tomorrow around 6"). They book
+their own Uber, auto, train or flight; Tori only finds someone travelling a similar route at a similar
+time and, **after both people agree**, shares their WhatsApp numbers. It is a stranger-matching
+system, so the backend knows exact places and the users never do.
+
+| Layer | Does | Never does |
+|---|---|---|
+| LLM (the existing call in workflow 06) | intent (`travel_partner`, `travel_cancel`, `travel_consent`, `travel_block`, `travel_report`), extracts source / destination / date / time, reads yes/no | distances, eligibility, consent state, contact sharing, expiry, dedupe |
+| n8n (07–12) | orchestration: geocoding calls, branching, rendering and sending messages, schedules | business rules |
+| Postgres (`005_travel_functions.repeatable.sql`) | identity, validation, distances, matching, ranking, consent, blocks, rate limits, expiry, what may be shown to whom | – |
+
+### 19.2 Flow
+
+```mermaid
+flowchart TD
+    WA[WhatsApp Trigger] --> TB{Travel button?<br/>tm_yes / tm_no / tm_block}
+    TB -->|yes| A07
+    TB -->|no| PB[Partner button? → Switch → LLM<br/>existing workflow 06]
+    PB -->|intent travel_*| A07[07 assistant]
+    A07 -->|dedupe by message ID| R{route}
+    R -->|details| V[Validate: merge with draft,<br/>ask only for missing fields]
+    V -->|complete| G[08 geocode ×2<br/>cache → Nominatim / Google]
+    G --> S[travel_activate_intent]
+    S --> N[11 notify: ack]
+    N -.async.-> M[09 find matches]
+    R -->|yes / no / block / report| C[10 consent]
+    R -->|cancel| X[travel_cancel_intent]
+    M --> N2[11 notify: offer to requester]
+    C --> N3[11 notify] -.re-match.-> M
+    SW[12 sweep every 10 min] --> N4[11 notify] -.re-match.-> M
+```
+
+1. **Collect.** Workflow 06's LLM call now also returns a `travel` object and five `travel_*` intents.
+   It is told the person's own unfinished travel request (`travel_context()`), so "Jhunsi to Naini"
+   or "yes" continues the right conversation. 07 merges the new fields into the draft and asks only for
+   what is missing ("Where will you be starting from? What time are you planning to leave?"). A time
+   with no day means today if it is still ahead; past dates/times and > 30 days ahead are asked again.
+2. **Geocode.** 08 normalises the place text and checks `travel_geocode_cache`. On a miss it calls the
+   provider in `TRAVEL_GEOCODER`. Zero results → "I couldn't find …"; top results more than 25 km apart
+   → "There's more than one Civil Lines. Which city?"; provider down → "send it again in a minute".
+3. **Save.** `travel_activate_intent()` creates the ACTIVE TravelIntent, or updates the person's
+   existing one (version + 1, stale matches closed, anyone already asked is told it is withdrawn).
+   It enforces the rate limit and refuses past trips. The ack is sent *before* matching starts.
+4. **Match (async, both directions).** 09 calls `travel_find_matches()` for every new or changed
+   request. It searches the ACTIVE pool, so a request that waited with nobody (A) is found by the
+   next compatible one (B). The requester (B here) is asked first.
+5. **Consent.** B taps *Yes* → `USER_A_ACCEPTED` (the match's "A" side is the requester), A is asked.
+   A taps *Yes* → `CONNECTED`, both get the other's first name + `wa.me` link. Either *No* → `DECLINED`,
+   the requester gets the next candidate, the declined pair is never proposed again.
+6. **Sweep.** 12 expires unanswered matches (2 h), trips 30 min after departure, drafts after 3 h.
+   If the requester said yes and the other side never answered, the requester is told and re-matched.
+
+### 19.3 Matching rules (`travel_find_matches`)
+
+A candidate must be ACTIVE, departing in the future, not the same person, and:
+
+- start points ≤ `TRAVEL_MAX_SOURCE_DISTANCE_KM` (3) apart and destinations ≤
+  `TRAVEL_MAX_DESTINATION_DISTANCE_KM` (5), by haversine distance on stored lat/lng;
+- same travel date and departure times ≤ `TRAVEL_MAX_TIME_DIFFERENCE_MINUTES` (45) apart;
+- not blocked by either person, not already paired with this request (answered or ignored), and the two
+  people did not decline each other in the last 7 days.
+
+The search runs in SQL: a bounding box on indexed lat/lng columns first, exact distances second, so
+the table is never pulled into n8n. The local Postgres has no PostGIS; the same query works on
+Supabase. Eligible candidates are ranked by `travel_match_score()`:
+`100 × (w_s·(1 − src_km/3) + w_d·(1 − dst_km/5) + w_t·(1 − minutes/45)) / (w_s + w_d + w_t)` with weights
+from `TRAVEL_SCORE_WEIGHT_*` (0.4 / 0.4 / 0.2). Up to `TRAVEL_MAX_MATCH_CANDIDATES` (3) are kept per
+request and shown **one at a time**. A per-day advisory lock serialises searches, so two people posting
+at the same moment always find each other once, never twice. A partial unique index stops duplicate
+live matches for the same pair.
+
+### 19.4 Privacy and safety controls
+
+| Control | Where |
+|---|---|
+| Before both say yes, messages say only "a nearby area", "a similar destination" and the other trip's time rounded to 15 min. No name, place, distance or number. | `travel_notification()` returns nothing else; wording in 11 · *Render message* |
+| Phone number + first name only when `status = CONNECTED` **and** both consents are true | `travel_notification()` |
+| The matcher returns only `{ matchFound, matchId }`; the LLM never receives another user's data | `travel_find_matches()`, 09 · *Result*, `travel_context()` |
+| Only the two people in a match can act on it, and B only after being asked (no forged button IDs) | `travel_respond()` |
+| Block (button on the connected message, or "block this person") and report ("report this user …"): never matched again; the other person isn't told | `travel_blocks`, `travel_reports`, `travel_respond()` |
+| Rate limit: 5 new/changed requests per hour, 15 per day (stops probing by moving a pin around); the ack is the same whether or not someone exists | `travel_activate_intent()`, `travel_load_request()` |
+| WhatsApp redeliveries handled once (message ID) | `travel_begin_message()` |
+| Logs (`travel_events`) hold UUIDs and codes only, never numbers, coordinates, places or message text | all functions |
+| RLS on every table, functions revoked from Supabase's anon / authenticated roles | 005 migrations |
+
+### 19.5 Data model
+
+| Table | Holds |
+|---|---|
+| `travel_users` | `wa_id` ↔ opaque `id`, profile name, `last_message_at` (24-hour window) |
+| `travel_intents` | TravelIntent: texts, lat/lng, date, time, `departure_at`, `status` DRAFT/ACTIVE/MATCHED/CANCELLED/EXPIRED, `version`, `expires_at`. One live (DRAFT/ACTIVE) per user |
+| `travel_matches` | TravelMatch: both intents and users, distances, minutes, score, `status` PENDING/USER_A_ACCEPTED/USER_B_ACCEPTED/CONNECTED/DECLINED/EXPIRED/BLOCKED, both consents, `offered_at`, `b_asked_at`, `close_reason`, `expires_at` |
+| `travel_blocks`, `travel_reports` | user-level blocks; reports for human review (`reviewed_at`) |
+| `travel_geocode_cache` | place text → lat/lng, per provider, 90 days, not linked to users |
+| `travel_inbound_messages` | processed WhatsApp message IDs (7 days) |
+| `travel_events` | domain events + structured logs (180 days) |
+
+`USER_B_ACCEPTED` is accepted by the schema but never produced: the requester (A) is always asked first.
+
+Events (`travel_events.event`): `travel.intent.created / updated / cancelled / expired / duplicate /
+rate_limited`, `travel.geocode.success / failure`, `travel.match.candidate_found / found / rejected /
+offered / accepted / declined / connected / expired / blocked`, `travel.consent.received / rejected`,
+`travel.report.created`, `travel.notification.sent / failed / skipped`, `travel.message.duplicate`,
+`travel.sweep`.
+
+### 19.6 Configuration
+
+All `TRAVEL_*` variables are listed with their defaults in [.env.example](.env.example) and passed
+to n8n by `docker-compose.yml`. Empty means the default in `travel_cfg()`. Matching values are read by
+the database on every call, so changing one needs only `docker compose up -d` (no SQL edit).
+
+- **Geocoding:** `TRAVEL_GEOCODER=nominatim` (default; OpenStreetMap's public server allows about
+  1 request/second and requires an identifying `TRAVEL_GEOCODER_USER_AGENT`, so use a self-hosted or
+  commercial Nominatim-compatible endpoint via `TRAVEL_GEOCODER_URL` for real volume) or `google`
+  (`TRAVEL_GEOCODER_KEY`).
+- **WhatsApp template** for people outside the 24-hour window: submit a *Utility* template, e.g.
+  `travel_match_found`, body *"Hi 👋 We found someone travelling a similar route around {{1}} {{2}}.
+  Would you like to connect?"*, quick replies *Yes, connect* / *No thanks*, then set
+  `TRAVEL_MATCH_TEMPLATE`. Until then, such requests are skipped and logged as
+  `travel.notification.skipped` (the match then times out and the requester hears so).
+- `BOT_WHATSAPP_GRAPH_URL` overrides the Graph API base (tests point it at mock-apis).
+
+### 19.7 Testing
+
+`scripts/travel-e2e.sh` brings up a throwaway stack (project `toritravel`, other ports, own volumes;
+the live stack is untouched) with real Groq and the mock WhatsApp API + mock geocoder, then runs:
+
+- `db/tests/travel_matching.sql`: 41 SQL assertions. They cover both-direction discovery, the distance
+  and time limits, dedupe, consent order, contact gating, double taps, decline then next candidate, update
+  invalidation, the candidate cap, block, rate limit, past trips and expiry.
+- `scripts/travel_e2e.py`: 30 checks through the real workflows. They cover the §22 example conversation
+  (missing details → ask → match → both accept → links), no leakage before consent, redelivered webhooks,
+  an ambiguous + unknown place, update, cancel, a typed "no thanks", block, report, the sports flow
+  still working, and logs free of numbers and coordinates.
+
+Also verified by hand in that stack: a geocoder outage and the consent timeout through the 12 schedule
+(requester told, then offered the next candidate).
+
+### 19.8 Known limits
+
+- **One live travel request per person.** A new route while one is open replaces it ("Updated ✅").
+- **No WhatsApp groups or masked relay:** the WhatsApp Cloud API integration here can't create groups,
+  so contact is shared as `wa.me` links, and only after both people say yes.
+- **Location pins are not used:** Switch rule 13 sends every location message into the old cab-share
+  flow. That flow (pin → `intent_pool` → `match_tori_intent`) is left untouched but should be retired:
+  it shares numbers with no consent and has the bugs listed in the partner-matching design doc.
+- Questions and confirmations are fixed templates chosen by code (no second LLM call, which also keeps
+  within Groq's free-tier tokens per minute); the LLM still does intent, extraction and yes/no.
+- The travel tables must exist wherever workflow 06's Postgres credential points (run both 005 files on
+  Supabase too), because 06 reads `travel_context()` for every free-text message.
