@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: "Neue Machina";
+  src: url("/fonts/NeueMachina-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Manrope";
+  src: url("/fonts/Manrope-VariableFont_wght.woff2") format("woff2");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --font-sans: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-display: "Neue Machina", "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  --color-primary: #181d26;
+  --color-primary-active: #0d1218;
+  --color-page: #e8ebe6;
+  --color-canvas: #ffffff;
+  --color-surface-soft: #f8fafc;
+  --color-surface-strong: #e0e2e6;
+  --color-surface-dark: #181d26;
+  --color-surface-dark-elevated: #1d1f25;
+  --color-hairline: #dddddd;
+
+  --color-ink: #181d26;
+  --color-body: #333840;
+  --color-muted: #41454d;
+  --color-border-strong: #9297a0;
+  --color-on-primary: #ffffff;
+
+  --color-sig-coral: #aa2d00;
+  --color-sig-forest: #0a2e0e;
+  --color-sig-cream: #f5e9d4;
+  --color-sig-peach: #fcab79;
+  --color-sig-mint: #a8d8c4;
+  --color-sig-yellow: #f4d35e;
+  --color-sig-mustard: #d9a441;
+
+  --color-link: #1b61c9;
+  --color-link-active: #1a3866;
+  --color-info: #254fad;
+  --color-info-border: #458fff;
+  --color-success: #006400;
+  --color-success-border: #39bf45;
+
+  --radius-xs: 2px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+
+  --text-display-xl: 48px;
+  --text-display-xl--line-height: 1.05;
+  --text-display-lg: 40px;
+  --text-display-lg--line-height: 1.15;
+  --text-display-md: 32px;
+  --text-display-md--line-height: 1.15;
+  --text-title-lg: 24px;
+  --text-title-lg--line-height: 1.35;
+  --text-title-lg--letter-spacing: 0.12px;
+  --text-title-md: 20px;
+  --text-title-md--line-height: 1.5;
+  --text-title-sm: 18px;
+  --text-title-sm--line-height: 1.4;
+  --text-label: 16px;
+  --text-label--line-height: 1.4;
+  --text-body: 14px;
+  --text-body--line-height: 1.45;
+  --text-caption: 13px;
+  --text-caption--line-height: 1.35;
+  --text-caption--letter-spacing: 0.16px;
+
+  --spacing-section: 96px;
+  --container-content: 1280px;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--color-page);
+    color: var(--color-body);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4 {
+    color: var(--color-ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-info-border);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--color-sig-cream);
+  }
+}
+
+@keyframes board-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(57, 191, 69, 0.55); }
+  70% { box-shadow: 0 0 0 7px rgba(57, 191, 69, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(57, 191, 69, 0); }
+}
+@keyframes board-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.live-dot { animation: board-pulse 2s infinite; }
+.rise { animation: board-rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .live-dot, .rise { animation: none; }
+}

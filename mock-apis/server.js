@@ -1,6 +1,8 @@
 'use strict';
 const http = require('http');
 const crypto = require('crypto');
+const fs = require('fs');
+const pathLib = require('path');
 
 const PORT = Number(process.env.PORT || 8090);
 
@@ -14,6 +16,7 @@ function reset() {
     whatsapp: [],
     llm: { requests: 0, last: null },
     geocode: { requests: 0 },
+    media: { requests: 0 },
     faults: { calendar_fail_next: 0, whatsapp_fail_next: 0, llm_fail_next: 0, geocode_fail_next: 0 },
   };
 }
@@ -152,7 +155,31 @@ async function googleCalendar(req, res, path, raw) {
   send(res, 405, googleError(405, 'Method not allowed'));
 }
 
+// Media a user "sent": GET /whatsapp/<version>/<media id> → { url, mime_type }, then GET that url (with the
+// token) → the bytes. Media IDs starting with BIG answer 6 MB, GIF answer a GIF (both refused by the bot),
+// VOICE answer a real spoken voice note (fixtures/voice-note.ogg, opus) for Whisper to transcribe.
+const TINY_JPEG = Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==', 'base64');
+const mediaMime = (id) => (id.startsWith('GIF') ? 'image/gif' : id.startsWith('VOICE') ? 'audio/ogg; codecs=opus' : 'image/jpeg');
+function whatsappMedia(req, res, path) {
+  if (!bearer(req)) return send(res, 401, { error: { message: 'Invalid OAuth access token.', type: 'OAuthException', code: 190 } });
+  const file = path.match(/^\/whatsapp\/media-file\/([\w.-]+)$/);
+  if (file) {
+    const id = file[1];
+    const bytes = id.startsWith('BIG') ? Buffer.alloc(6 * 1024 * 1024, 1)
+      : id.startsWith('VOICE') ? fs.readFileSync(pathLib.join(__dirname, 'fixtures', 'voice-note.ogg')) : TINY_JPEG;
+    res.writeHead(200, { 'content-type': mediaMime(id), 'content-length': bytes.length });
+    return res.end(bytes);
+  }
+  const id = path.split('/').pop();
+  state.media.requests++;
+  send(res, 200, { messaging_product: 'whatsapp', id, url: `http://mock-apis:8090/whatsapp/media-file/${id}`,
+                   mime_type: mediaMime(id), file_size: id.startsWith('BIG') ? 6291456 : TINY_JPEG.length });
+}
+
 function whatsapp(req, res, path, raw) {
+  if (req.method === 'GET' && (/^\/whatsapp\/media-file\//.test(path) || /^\/whatsapp\/v[\d.]+\/[\w.-]+$/.test(path))) {
+    return whatsappMedia(req, res, path);
+  }
   const m = path.match(/^\/whatsapp\/(v[\d.]+)\/(\d+)\/messages$/);
   if (!m || req.method !== 'POST') return send(res, 404, { error: { message: 'Unknown path', code: 100 } });
   if (!bearer(req)) {
@@ -172,6 +199,8 @@ function whatsapp(req, res, path, raw) {
   let text;
   if (body.type === 'text' && typeof body.text?.body === 'string') {
     text = body.text.body;
+  } else if (body.type === 'image' && /^https:\/\//.test(body.image?.link || '')) {
+    text = (body.image.caption || '') + `\n[image ${body.image.link}]`;
   } else if (body.type === 'template' && body.template?.name && body.template?.language?.code) {
     const params = (body.template.components || []).flatMap((c) => c.parameters || []).map((p) => p.text);
     if (params.some((p) => /[\n\t]| {5,}/.test(p))) {
@@ -181,8 +210,10 @@ function whatsapp(req, res, path, raw) {
   } else if (body.type === 'interactive' && body.interactive?.type === 'button') {
     const buttons = body.interactive.action?.buttons || [];
     const body_ = body.interactive.body?.text || '';
+    const header = body.interactive.header;
     if (!buttons.length || buttons.length > 3 || body_.length > 1024
-        || buttons.some((b) => !b.reply?.id || !b.reply?.title || b.reply.title.length > 20)) {
+        || buttons.some((b) => !b.reply?.id || !b.reply?.title || b.reply.title.length > 20)
+        || (header && !(header.type === 'image' && /^https:\/\//.test(header.image?.link || '')))) {
       return send(res, 400, { error: { message: '(#131009) Parameter value is not valid', code: 131009 } });
     }
     text = body_ + '\n' + buttons.map((b) => `[${b.reply.title}]`).join(' ');
@@ -214,7 +245,8 @@ function whatsapp(req, res, path, raw) {
     : (body.template?.components || []).filter((c) => c.type === 'button')
         .map((c) => ({ id: c.parameters?.[0]?.payload, title: 'quick reply ' + c.index }));
   const flow = body.interactive?.type === 'flow' ? body.interactive.action.parameters : undefined;
-  state.whatsapp.push({ id, at: new Date().toISOString(), phoneNumberId: m[2], to: body.to, type: body.type, text, buttons, flow });
+  const image = body.interactive?.header?.image?.link || body.image?.link;
+  state.whatsapp.push({ id, at: new Date().toISOString(), phoneNumberId: m[2], to: body.to, type: body.type, text, buttons, flow, image });
   send(res, 200, { messaging_product: 'whatsapp', contacts: [{ input: body.to, wa_id: body.to }], messages: [{ id }] });
 }
 

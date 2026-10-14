@@ -7,9 +7,11 @@ cd "$(dirname "$0")/.."
 
 docker compose --profile tunnel up -d tunnel
 
+# only the current run's logs: earlier runs of the container left their (dead) addresses in there too
+since=$(docker inspect -f '{{.State.StartedAt}}' "$(docker compose --profile tunnel ps -q tunnel)")
 url=""
 for _ in $(seq 1 30); do
-  url=$(docker compose --profile tunnel logs tunnel 2>&1 | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -1 || true)
+  url=$(docker compose --profile tunnel logs --since "$since" tunnel 2>&1 | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -1 || true)
   [ -n "$url" ] && break
   sleep 2
 done
@@ -40,6 +42,20 @@ read -r node_id hook_id < <(python3 -c "
 import json; w = json.load(open('n8n/workflows/06-whatsapp-bot.json'))
 t = next(n for n in w['nodes'] if n['name'] == 'WhatsApp Trigger'); print(t['id'], t['webhookId'])")
 callback="${url}/webhook/${hook_id}/webhook"
+# a new quick-tunnel name takes a while to resolve; Meta fails with "Failed to resolve host" before that
+for _ in $(seq 1 40); do
+  curl -sf -o /dev/null "$url/healthz" && break
+  sleep 3
+done
+# After a restart n8n sometimes serves the trigger's POST route but not the GET route Meta verifies
+# with (404); a full stop / start fixes it.
+check="http://localhost:5678/webhook/${hook_id}/webhook?hub.mode=subscribe&hub.challenge=1&hub.verify_token=${node_id}"
+if ! curl -sf -o /dev/null "$check"; then
+  echo "WhatsApp Trigger not answering Meta's check yet: restarting n8n once more"
+  docker compose stop n8n && docker compose up -d n8n
+  until curl -sf http://localhost:5678/healthz >/dev/null; do sleep 2; done
+  sleep 12
+fi
 app_token="${BOT_META_APP_ID}|${BOT_META_APP_SECRET}"
 result=$(curl -s -X POST "https://graph.facebook.com/v19.0/${BOT_META_APP_ID}/subscriptions" \
   --data-urlencode "object=whatsapp_business_account" --data-urlencode "callback_url=$callback" \

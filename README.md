@@ -20,6 +20,7 @@ docker compose up -d        # postgres → migrations → n8n bootstrap → n8n 
 |---|---|
 | n8n editor | http://localhost:5678 (login from `N8N_OWNER_EMAIL` / `N8N_OWNER_PASSWORD`) |
 | Mock Google Calendar + WhatsApp inbox | http://localhost:8090 (only with `COMPOSE_PROFILES=mock`) |
+| Partner board (every partner request, live) | http://localhost:3001 (`BOARD_PORT`) |
 | Postgres | `localhost:5433`, db `tori`, user `tori_app` |
 | Inbound webhook (Postmark) | `POST /webhook/inbound/postmark`, basic auth `INBOUND_WEBHOOK_*` |
 | Admin API | `POST /webhook/admin/{venues,calendar-test,reprocess}`, header `X-Tori-Admin-Key` |
@@ -125,6 +126,18 @@ receiving messages while this one is published.**
 The workflow file holds no secrets: tokens are read from `$env.BOT_*`. It is generated from the n8n export
 by `python3 plan/build_partner_workflow.py --local`.
 
+**Google (optional).** With `TORI_GOOGLE_URL` and `TORI_GOOGLE_SECRET` set, the bot hands "connect google",
+`gg_` button taps and free text to the ToriGoogle stack (`../ToriGoogle`, workflow 22). It answers for numbers
+linked to a Google account (calendar, tasks, email, contacts, notes, Docs, Sheets, Slides, Drive). For
+everything else, or when ToriGoogle is down, the bot carries on as before. Setup: see the WhatsApp section of
+`../ToriGoogle/README.md`.
+
+If the trigger won't register after a tunnel change (n8n log: "Workflow partially published"), Meta still had
+the old address when n8n started. Run `scripts/bot-tunnel.sh` once more (it points Meta at the new address),
+then `docker compose stop n8n && docker compose up -d` so n8n republishes. A quick tunnel can also expire
+while its container keeps running (tunnel log: "Tunnel not found"):
+`docker compose --profile tunnel up -d --force-recreate tunnel`, then run the script.
+
 ### Travel partner matching (workflows 07–12)
 
 The same bot also finds travel companions: "Going from Jhunsi to Naini tomorrow around 6 PM, anyone
@@ -138,6 +151,102 @@ points are within 3 km, destinations within 5 km, and departures within 45 minut
   functions in `db/migrations/005_travel_functions.repeatable.sql`.
 - Test without phones: `scripts/travel-e2e.sh` (throwaway stack, real Groq, mock WhatsApp + geocoder, ~5 min).
 - Rows: `public.travel_intents`, `public.travel_matches`, logs in `public.travel_events`.
+
+### User profiles before the first request
+
+Before Tori looks for a partner, it needs to know who is asking. The first partner request from a number
+without a complete profile is **saved first** (`partner_requests.status = 'pending_profile'`, so it is never
+lost), then the bot asks for age, gender and the sports or activities they enjoy. One message or several
+both work ("24, male" … "badminton and football"); the bot asks only for what is still missing. When the
+profile is complete, the saved request goes live by itself and matching starts. If the request still lacks
+details, the bot asks for them next, and if its time passed in the meantime, it asks for a new one.
+Profile details in the first message ("I'm Priya, 27, female, need a badminton partner …") are used right away.
+
+- Tables: `tori_users` (phone in E.164, name, birth year, gender, interests), `tori_conversation_state`
+  (`idle` / `awaiting_profile`, the parked request) and `tori_messages` (every inbound message; a message ID
+  Meta delivers twice is processed once). [db/migrations/006_user_profiles.sql](db/migrations/006_user_profiles.sql),
+  functions in [006_profile_functions.repeatable.sql](db/migrations/006_profile_functions.repeatable.sql).
+- Workflow 06: **Log inbound message** runs first for every message; the LLM call also extracts profile fields;
+  **Partner route** has two more outputs, `profile` and `hold`.
+- "Stop looking" also drops a parked request. Parked requests nobody finished expire after 7 days.
+- Travel matching and the booking menu do not ask for a profile.
+- Tests: `db/tests/user_profiles.sql` (32 SQL checks) and `scripts/profile_e2e.py` (real Groq, mock WhatsApp):
+  `E2E_ONLY=profile scripts/travel-e2e.sh`.
+
+### Profiles v2, profile cards and matching v2
+
+Design: [plan/tori-matching-architecture.md](plan/tori-matching-architecture.md) (built on n8n + Postgres).
+
+- **Onboarding, one question at a time:**
+  1. name (one-tap button with the WhatsApp name), age, gender (buttons), interests;
+  2. optionally an Instagram / LinkedIn link (link or @handle) and a photo, each with **Skip**;
+  3. if they gave either: "Who can see your photo and link before you both agree to connect?" Anyone I match
+     with / Only after both yes.
+
+  Several answers in one message are all taken. Photos (JPG / PNG / WebP, ≤ 5 MB) are downloaded from WhatsApp
+  and stored in `tori_user_photos`.
+- **"About you" (recommended, optional):** the last onboarding step. People type a few lines about themselves
+  or **send a voice note**. Voice notes are transcribed by Whisper (Groq `whisper-large-v3-turbo`, same key as
+  the chat LLM; `TRANSCRIBE_BASE_URL` / `TRANSCRIBE_MODEL` override it). An LLM turns the text into a short
+  summary for match cards (contact details are stripped), a skill level and extra interests (`tori_save_about`,
+  [010_about.sql](db/migrations/010_about.sql)). The bot shows the summary back to them: "Here's what I'll share".
+  The link question says Instagram profiles must be public.
+- **Matching** (`match_partner_request`, 009):
+  - same day, same sport (or a group in `compatible_activities`);
+  - time ranges ≤ `time_gap_min` apart (default 120);
+  - geocoded areas ≤ `radius_km` apart (default 3; areas are geocoded with workflow 08 and cached);
+  - when either request isn't geocoded: same city and area name;
+  - a beginner never meets an advanced player (a request without a level uses the profile's level from
+    "about you");
+  - among equally good candidates, the one with more interests in common wins.
+
+  Settings live in `tori_settings`, e.g.
+  `INSERT INTO tori_settings VALUES ('time_gap_min', '90') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;`
+- **Consent is sequential:**
+  1. the person who posted last gets the other's **card** (name, age, interests, time; photo and link only if the
+     owner chose "anyone I match with") with **Interested** / **Not interested**;
+  2. the other person is asked only after that, with the first person's card;
+  3. when both say yes, both get the number (`wa.me`), the link and the photo.
+- **Photos in messages** need the board to be public (`BOARD_PUBLIC_URL`, `scripts/board-tunnel.sh`): WhatsApp
+  fetches them from `<board>/p/<random token>`. Without it, cards have no photo.
+- Tests: `db/tests/matching_v2.sql` (22 checks) and `db/tests/user_profiles.sql`; the conversation in
+  `scripts/profile_e2e.py`.
+
+### People outside WhatsApp's 24-hour window
+
+WhatsApp only lets the bot message someone within 24 hours of their last message; after that only an
+approved template gets through. When a match is found for someone who has been quiet longer, their offer
+is **kept** (`public.tori_held_messages`) and sent the next time they message the bot, before the normal
+reply. The other person is told "they'll see it the next time they check in". Every "Looking for a partner"
+reply ends with *No word from me before you head out? Send any match? and I'll check*. "any match?" sends
+anything kept and lists each live request (still looking / waiting for them / waiting for you).
+
+- An offer kept for someone offline doesn't time out after 2 hours; the clock starts when they see it.
+  Nothing is sent after the game time.
+- With an approved template, set `PARTNER_MATCH_TEMPLATE=<name>` (4 body params: sport, name, when, area;
+  quick replies Yes / No) and offers go out right away instead.
+- SQL: [008_held_messages.sql](db/migrations/008_held_messages.sql) and its `.repeatable.sql`
+  (which replaces `expire_partner_requests`). Tests: `db/tests/held_messages.sql`, scenario 8 of `scripts/profile_e2e.py`.
+
+## Partner board (web/)
+
+A web page listing every partner request people send on WhatsApp, newest games first, refreshing every
+20 s. Filters: search (area, city, sport, name), sport, city, day (today, tomorrow, this weekend, next 7 days,
+past), time of day, status and skill level. Each filter is in the URL, so a filtered view can be shared. Same
+look as ToriGoogle's web app (fonts, colours, components). JSON: `GET /api/requests` takes the same parameters.
+
+- `docker compose up -d` builds and starts it on http://localhost:3001. It reads the bot's database (this
+  Postgres, or the `BOT_PG_*` one) over a read-only session.
+- Only `public.v_partner_board` is read ([007_partner_board.repeatable.sql](db/migrations/007_partner_board.repeatable.sql)):
+  first names, places and times. No phone numbers, message text or profile details, and only requests that went
+  live (no drafts, nothing still waiting for a profile).
+- Set `BOARD_WHATSAPP_NUMBER` to the bot's number to show **I'm in** on each card: it opens WhatsApp with a
+  message describing the same game, so the bot's usual matching connects the two people once both say yes.
+- Demo from a phone: `scripts/board-tunnel.sh` gives the board a temporary public address and puts it into
+  `BOARD_PUBLIC_URL`. The bot then adds "👀 See who else is playing: <link>" (filtered to the sport and city)
+  to its "Looking for a partner" reply and to the "hi" menu. Anyone with the link can see the board. The
+  address changes when the `board-tunnel` container restarts: run the script again.
+- Develop: `cd web && npm install && DATABASE_URL=postgres://tori_app:<TORI_DB_PASSWORD>@localhost:5433/tori npm run dev`.
 
 ## Editing workflows
 

@@ -20,6 +20,15 @@ client_secret*.json
 node_modules/
 *.log
 
+# Python (plan/build_*.py, scripts/*_e2e.py)
+__pycache__/
+*.pyc
+
+# web/ build output (also in web/.gitignore)
+.next/
+*.tsbuildinfo
+next-env.d.ts
+
 .vscode/
 .idea/
 *.swp

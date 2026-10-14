@@ -3,10 +3,12 @@
 #   - Docker project "toritravel": its own volumes, ports 15433 (Postgres), 15678 (n8n), 18090 (mocks)
 #   - real Groq (LLM_API_KEY from .env), mock WhatsApp + mock geocoder (mock-apis)
 #   - workflow 06 is imported as a copy whose WhatsApp Trigger is a plain webhook (POST /webhook/wa-test)
-# Runs db/tests/travel_matching.sql, then scripts/travel_e2e.py (~5 minutes: Groq free-tier pacing).
+# Runs db/tests/travel_matching.sql and user_profiles.sql, then scripts/travel_e2e.py and profile_e2e.py
+# (~8 minutes: Groq free-tier pacing).
 #
 #   scripts/travel-e2e.sh          run, then remove the stack
 #   KEEP=1 scripts/travel-e2e.sh   leave it running afterwards (n8n UI: http://localhost:15678)
+#   E2E_ONLY=profile scripts/travel-e2e.sh   skip the travel conversation, run only the profile one
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
@@ -70,6 +72,7 @@ TRAVEL_GEOCODER_USER_AGENT=ToriWhatsAppBot/1.0-test
 TRAVEL_MATCH_TEMPLATE=travel_match_found
 TRAVEL_TRIP_FLOW_ID=mock-flow-1
 TRAVEL_TRIP_FLOW_MODE=draft
+BOARD_PUBLIC_URL=https://board.test
 EOF
 cat > "$T/override.yml" <<EOF
 services:
@@ -97,8 +100,20 @@ trap cleanup EXIT
 until curl -sf http://localhost:15678/healthz >/dev/null; do sleep 2; done
 sleep 5
 
-echo "── SQL scenarios (db/tests/travel_matching.sql)"
+echo "── SQL scenarios (db/tests/travel_matching.sql, user_profiles.sql, held_messages.sql, matching_v2.sql)"
 docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/travel_matching.sql 2>&1 \
   | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
-echo "── End to end (scripts/travel_e2e.py)"
-python3 "$ROOT/scripts/travel_e2e.py"
+docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/user_profiles.sql 2>&1 \
+  | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
+docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/held_messages.sql 2>&1 \
+  | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
+docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/matching_v2.sql 2>&1 \
+  | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
+status=0
+if [ "${E2E_ONLY:-}" != profile ]; then
+  echo "── End to end (scripts/travel_e2e.py)"
+  python3 "$ROOT/scripts/travel_e2e.py" || status=1
+fi
+echo "── Profile onboarding end to end (scripts/profile_e2e.py)"
+python3 "$ROOT/scripts/profile_e2e.py" || status=1
+exit $status

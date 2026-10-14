@@ -31,6 +31,16 @@ x-n8n-env: &n8n-env
   BOT_WHATSAPP_TOKEN: ${BOT_WHATSAPP_TOKEN:-}
   BOT_SUPABASE_SERVICE_KEY: ${BOT_SUPABASE_SERVICE_KEY:-}
   BOT_WHATSAPP_GRAPH_URL: ${BOT_WHATSAPP_GRAPH_URL:-}
+  # workflow 06 hands Google requests to the ToriGoogle stack (../ToriGoogle); empty URL = off
+  TORI_GOOGLE_URL: ${TORI_GOOGLE_URL:-}
+  TORI_GOOGLE_SECRET: ${TORI_GOOGLE_SECRET:-}
+  # partner board's public address (scripts/board-tunnel.sh); the bot links to it when set
+  BOARD_PUBLIC_URL: ${BOARD_PUBLIC_URL:-}
+  # approved template for match offers outside the 24-hour window; empty = keep them until the user writes
+  PARTNER_MATCH_TEMPLATE: ${PARTNER_MATCH_TEMPLATE:-}
+  # voice notes ("about you"): Whisper endpoint and model; empty = Groq whisper-large-v3-turbo with the LLM key
+  TRANSCRIBE_BASE_URL: ${TRANSCRIBE_BASE_URL:-}
+  TRANSCRIBE_MODEL: ${TRANSCRIBE_MODEL:-}
   # travel partner matching (workflows 07–12); empty = the default in public.travel_cfg()
   TRAVEL_MAX_SOURCE_DISTANCE_KM: ${TRAVEL_MAX_SOURCE_DISTANCE_KM:-}
   TRAVEL_MAX_DESTINATION_DISTANCE_KM: ${TRAVEL_MAX_DESTINATION_DISTANCE_KM:-}
@@ -156,6 +166,11 @@ services:
       - ./n8n:/opt/tori/n8n:ro,z
     ports:
       - "127.0.0.1:5678:5678"
+    networks:
+      default:
+      # shared only with the ToriGoogle n8n (../ToriGoogle docker-compose.whatsapp.yml), so its service
+      # name "n8n" never shadows this one for the tunnel
+      google:
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1"]
       interval: 5s
@@ -179,6 +194,26 @@ services:
       n8n:
         condition: service_healthy
 
+  # Partner board (web/): every hobby / sports partner request sent on WhatsApp, with filters.
+  # Reads the bot's database (this Postgres, or BOT_PG_* when the bot uses another one), read-only.
+  web:
+    build: ./web
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ}
+      PGHOST: ${BOT_PG_HOST:-postgres}
+      PGPORT: ${BOT_PG_PORT:-5432}
+      PGDATABASE: ${BOT_PG_DATABASE:-tori}
+      PGUSER: ${BOT_PG_USER:-tori_app}
+      PGPASSWORD: ${BOT_PG_PASSWORD:-${TORI_DB_PASSWORD}}
+      DATABASE_SSL: ${BOT_PG_SSL:-}
+      BOARD_WHATSAPP_NUMBER: ${BOARD_WHATSAPP_NUMBER:-}
+    ports:
+      - "127.0.0.1:${BOARD_PORT:-3001}:3000"
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+
   # Public HTTPS address for n8n, so Meta can deliver WhatsApp messages to this laptop.
   # Started by scripts/bot-tunnel.sh, which also puts the address into WEBHOOK_URL.
   tunnel:
@@ -190,6 +225,20 @@ services:
       n8n:
         condition: service_healthy
 
+  # Public HTTPS address for the partner board, for demos (scripts/board-tunnel.sh). Anyone with the
+  # address sees the board: first names, places and times.
+  board-tunnel:
+    image: cloudflare/cloudflared:2026.9.3
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "--url", "http://web:3000"]
+    depends_on:
+      - web
+
 volumes:
   pgdata:
   n8ndata:
+
+networks:
+  google:
+    name: tori_google_link

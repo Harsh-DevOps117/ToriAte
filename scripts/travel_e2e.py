@@ -204,9 +204,9 @@ r = replies(D, n)
 check(r and (r[-1].get('flow') or {}).get('flow_id') == 'mock-flow-1', 'tapping Cab buddy opens the trip form')
 
 # ── sports flow still works (regression) ────────────────────────────────────────────────────────
-_, n = send(D, 'Dev', 'Football today 9 PM in Indiranagar, Bangalore')
+_, n = send(D, 'Dev', 'Football tomorrow 9 PM in Indiranagar, Bangalore')
 r = replies(D, n)
-check(r and 'football partner' in r[-1]['text'], 'sports partner flow unchanged')
+check(r and 'quick questions' in r[-1]['text'], 'sports partner: a new user is asked for a profile first')
 
 # ── logs carry no phone numbers or coordinates ──────────────────────────────────────────────────
 ev = psql("SELECT string_agg(details::text, ' ') FROM travel_events")
