@@ -212,6 +212,22 @@ Design: [plan/tori-matching-architecture.md](plan/tori-matching-architecture.md)
 - Tests: `db/tests/matching_v2.sql` (22 checks) and `db/tests/user_profiles.sql`; the conversation in
   `scripts/profile_e2e.py`.
 
+### Joining a game from the board
+
+Every live request has a 4-character **join code** and a number of **spots** (`players_needed`; "need 3 more" when
+posting, or **`spots 3`** later).
+- The board shows each game's spots, **who joined** (first names) and a **Join** button. Join opens WhatsApp with
+  `JOIN <code>` typed out, so the joiner's number is proven by WhatsApp itself; there is no website login.
+- The bot sends the game's creator (the host) the joiner's card with **Accept / Decline**. Every joiner goes to the
+  host. Someone without a profile is onboarded first; the join goes on afterwards.
+- **Accept:** both get each other's `wa.me` link (plus link and photo per privacy). **Decline:** the joiner is told
+  politely.
+- When all spots are taken, the game is **Full** on the board and anyone still waiting is told. More spots reopen
+  it; fewer spots than people already in fill it.
+- A host outside the 24-hour window gets join requests when they next write, like match cards.
+- SQL: [011_joins.sql](db/migrations/011_joins.sql), `011_joins.repeatable.sql`. Tests: `db/tests/joins.sql`
+  (31 checks) and scenario 7 of `scripts/profile_e2e.py`.
+
 ### People outside WhatsApp's 24-hour window
 
 WhatsApp only lets the bot message someone within 24 hours of their last message; after that only an

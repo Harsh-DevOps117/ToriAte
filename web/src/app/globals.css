@@ -1,13 +1,6 @@
 @import "tailwindcss";
 
 @font-face {
-  font-family: "Neue Machina";
-  src: url("/fonts/NeueMachina-Regular.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
   font-family: "Manrope";
   src: url("/fonts/Manrope-VariableFont_wght.woff2") format("woff2");
   font-weight: 200 800;
@@ -17,7 +10,8 @@
 
 @theme {
   --font-sans: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  --font-display: "Neue Machina", "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* headings: Manrope (free licence). ToriGoogle uses Neue Machina, which may not be shared publicly */
+  --font-display: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
   --color-primary: #181d26;
   --color-primary-active: #0d1218;

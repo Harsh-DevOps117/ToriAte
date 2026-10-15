@@ -39,8 +39,10 @@ BEGIN
   due AS (
     UPDATE public.tori_held_messages h SET delivered_at = now()
      WHERE h.wa_id = p_wa_id AND h.expires_at > now()
-       AND (h.delivered_at IS NULL OR (p_resend AND h.kind = 'match_offer'))
+       AND (h.delivered_at IS NULL OR (p_resend AND h.kind IN ('match_offer', 'join_request')))
        AND (h.kind <> 'match_offer' OR h.match_id IN (SELECT id FROM live_offer))
+       -- a join request (011) only while it still waits for the host's answer
+       AND (h.kind <> 'join_request' OR h.join_id IN (SELECT id FROM public.partner_joins WHERE status = 'pending'))
     RETURNING h.*),
   -- the 2-hour answer clock starts when the offer is actually seen
   seen AS (
@@ -50,7 +52,8 @@ BEGIN
   RETURN v_out;
 END $$;
 
--- "any match?": this person's live requests and what each one is waiting for.
+-- "any match?": this person's live requests (what each waits for, spots, who joined, joins waiting for
+-- their answer) and the games they asked to join (011).
 CREATE OR REPLACE FUNCTION public.tori_partner_status(p_wa_id text)
 RETURNS jsonb
 LANGUAGE sql STABLE AS $$
@@ -58,7 +61,7 @@ LANGUAGE sql STABLE AS $$
     'requests', coalesce((
       SELECT jsonb_agg(jsonb_build_object(
                'activity', r.activity, 'play_date', r.play_date, 'time_label', r.time_label, 'area', r.area,
-               'status', r.status,
+               'status', r.status, 'code', r.join_code, 'spots', r.players_needed,
                -- b hasn't been told about a match until a said yes (009): for b it's still "looking"
                'waiting_on', (SELECT CASE WHEN m.wa_b = p_wa_id AND m.a_response IS DISTINCT FROM 'yes' THEN NULL
                                           WHEN (CASE WHEN m.wa_a = p_wa_id THEN m.a_response ELSE m.b_response END) IS NULL
@@ -70,10 +73,22 @@ LANGUAGE sql STABLE AS $$
                              FROM public.partner_matches m
                              JOIN public.partner_requests o ON o.id = CASE WHEN m.request_a = r.id THEN m.request_b ELSE m.request_a END
                             WHERE m.status = 'pending' AND r.id IN (m.request_a, m.request_b)
-                            ORDER BY m.created_at DESC LIMIT 1))
+                            ORDER BY m.created_at DESC LIMIT 1),
+               'joined', coalesce((SELECT to_jsonb(b.joined_names) FROM public.v_partner_board b WHERE b.id = r.id), '[]'),
+               'pending_joins', (SELECT count(*) FROM public.partner_joins j WHERE j.request_id = r.id AND j.status = 'pending'))
              ORDER BY r.window_start)
         FROM public.partner_requests r
-       WHERE r.wa_id = p_wa_id AND r.status IN ('open', 'proposed') AND r.window_end > now()), '[]'));
+       WHERE r.wa_id = p_wa_id AND r.status IN ('open', 'proposed', 'matched') AND r.window_end > now()), '[]'),
+    'joins', coalesce((
+      SELECT jsonb_agg(jsonb_build_object(
+               'activity', r.activity, 'play_date', r.play_date, 'time_label', r.time_label, 'area', r.area,
+               'host', coalesce(nullif(split_part(trim(coalesce(hu.name, r.profile_name, '')), ' ', 1), ''), 'the host'),
+               'status', j.status)
+             ORDER BY r.window_start)
+        FROM public.partner_joins j
+        JOIN public.partner_requests r ON r.id = j.request_id
+        LEFT JOIN public.tori_users hu ON hu.phone = '+' || r.wa_id
+       WHERE j.joiner_wa = p_wa_id AND j.status IN ('pending', 'accepted') AND r.window_end > now()), '[]'));
 $$;
 
 -- Replaces the 004 version: a proposal kept for someone offline doesn't time out after 2 hours;

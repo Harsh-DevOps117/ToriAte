@@ -37,8 +37,11 @@ export type BoardRequest = {
   skill_level: Level | null;
   players_needed: number;
   notes: string | null;
-  board_status: 'looking' | 'in_talks' | 'matched' | 'closed';
+  board_status: 'looking' | 'in_talks' | 'matched' | 'closed';   // matched = Full
   created_at: string;
+  join_code: string | null;      // "JOIN <code>" on WhatsApp asks the creator to let you in
+  joined_count: number;
+  joined_names: string[];        // first names, in the order they joined
 };
 
 export type Facet = { value: string; n: number };
@@ -102,6 +105,7 @@ export async function getRequests(f: Filters): Promise<{ items: BoardRequest[]; 
   const list = await rows<BoardRequest & { total: string }>(`
     SELECT id, first_name, activity, city, area, to_char(play_date, 'YYYY-MM-DD') AS play_date, time_label, day_part,
            window_start, skill_level, players_needed, notes, board_status, created_at,
+           join_code, joined_count, joined_names,
            count(*) OVER () AS total
       FROM public.v_partner_board
      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}

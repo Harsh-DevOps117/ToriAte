@@ -215,7 +215,7 @@ BEGIN
          AND activity = r.activity AND play_date = r.play_date;
       v_res := jsonb_build_object('action', 'open', 'request_id', r.id, 'activity', r.activity,
                                   'play_date', r.play_date, 'time_label', r.time_label, 'area', r.area,
-                                  'city', r.city);
+                                  'city', r.city, 'spots', r.players_needed);
     ELSIF FOUND AND coalesce((s.context ->> 'request_complete')::boolean, false) THEN
       -- onboarding took longer than the game: keep the rest, ask for a new day and time
       UPDATE public.partner_requests
@@ -229,6 +229,10 @@ BEGIN
       UPDATE public.partner_requests SET status = 'draft', last_message_at = now(), updated_at = now()
        WHERE id = r.id;
       v_res := jsonb_build_object('action', 'ask', 'request_id', r.id, 'text', s.context ->> 'followup');
+    END IF;
+    -- a board "JOIN <code>" that was waiting for this profile (011): workflow 06 sends it on now
+    IF s.context ? 'join_code' THEN
+      v_res := coalesce(v_res, '{}') || jsonb_build_object('join_code', s.context ->> 'join_code');
     END IF;
     UPDATE public.tori_conversation_state
        SET state = 'idle', pending_request_id = NULL, context = '{}', updated_at = now()
@@ -396,13 +400,15 @@ BEGIN
   RETURN n;
 END $$;
 
--- partner_requests.opened_at: stamped the first time a request goes live, whichever function opens it.
+-- partner_requests.opened_at and join_code (011): stamped the first time a request goes live, whichever
+-- function opens it. (tori_new_join_code is in 011_joins.repeatable.sql.)
 CREATE OR REPLACE FUNCTION public.tori_stamp_opened()
 RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-  IF NEW.status IN ('open', 'proposed', 'matched') AND NEW.opened_at IS NULL THEN
-    NEW.opened_at := now();
+  IF NEW.status IN ('open', 'proposed', 'matched') THEN
+    NEW.opened_at := coalesce(NEW.opened_at, now());
+    NEW.join_code := coalesce(NEW.join_code, public.tori_new_join_code());
   END IF;
   RETURN NEW;
 END $$;

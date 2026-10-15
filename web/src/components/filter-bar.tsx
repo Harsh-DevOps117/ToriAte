@@ -9,7 +9,7 @@ import { inputClass } from './ui';
 
 const WHEN_LABEL = { upcoming: 'Any upcoming day', today: 'Today', tomorrow: 'Tomorrow', weekend: 'This weekend', week: 'Next 7 days', any: 'Any day, past too' };
 const PART_LABEL = { '': 'Any time', morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening', night: 'Night' };
-const STATUS_LABEL = { active: 'Still looking', looking: 'Looking, no match yet', matched: 'Matched', all: 'Everything' };
+const STATUS_LABEL = { active: 'Still looking', looking: 'Looking, no match yet', matched: 'Full', all: 'Everything' };
 const LEVEL_LABEL = { '': 'Any level', beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced' };
 
 // defaults are left out of the URL, so a clean board has a clean link

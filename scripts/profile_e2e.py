@@ -23,6 +23,7 @@ failures = []
 
 P, Q, R, S = '919100000001', '919100000002', '919100000003', '919100000004'
 H, J = '919100000005', '919100000006'
+K, L, M, N, O = '919100000007', '919100000008', '919100000009', '919100000010', '919100000011'
 
 
 def http(url, body=None):
@@ -277,6 +278,72 @@ send(H, 'Hema', button=button(offer, 'pm_yes_'))
 rh, rj = replies(H, nh), replies(J, nj)
 check("It's a match" in last(rh) and f'wa.me/{J}' in last(rh), 'H: connected with J')
 check("It's a match" in last(rj) and f'wa.me/{H}' in last(rj), 'J: connected with H')
+
+# ── 7. Joining a game from the board: "JOIN <code>" → the host accepts or declines ──────────────
+SKIP = {'social': None, 'photo': None, 'about': None}
+n = send(K, 'Kavya', 'Football tomorrow 6 pm in Indiranagar, Bangalore, need 2 more players')
+r = replies(K, n)
+r = onboard(K, 'Kavya', {'name': 'button', 'age': '26', 'gender': 'female', 'interests': 'football', **SKIP}, r)
+check('2 spots' in last(r) and 'spots 3' in last(r), 'K: the ack says 2 spots and how to change them')
+code = psql(f"SELECT join_code FROM partner_requests WHERE wa_id = '{K}' AND status = 'open'")
+check(len(code) == 4, f'K: the game has a join code ({code})')
+
+# L is new: onboarding first, then the join goes to Kavya
+nk = len(msgs(K))
+n = send(L, 'Lata', f'JOIN {code}', llm=False)
+r = replies(L, n)
+check('Before I send your request to join' in last(r), 'L: JOIN from a new number starts onboarding first')
+r = onboard(L, 'Lata', {'name': 'Lata, 24, female, football and running', **SKIP}, r)
+r = replies(L, n, want=len(msgs(L)) - n + 1, timeout=20) if 'asked Kavya' not in ''.join(m['text'] for m in msgs(L)[n:]) else r
+check(any("I've asked Kavya" in m['text'] for m in msgs(L)[n:]), 'L: profile done → join request sent to Kavya')
+kc = next((m for m in msgs(K)[nk:] if button(m, 'pj_yes_')), None)
+check(kc is not None and 'Lata' in kc['text'] and 'wants to join' in kc['text'] and '0/2' in kc['text'],
+      'K: gets Lata\'s card with Accept / Decline (0/2 joined)')
+
+nk, nl = len(msgs(K)), len(msgs(L))
+send(K, 'Kavya', button=button(kc, 'pj_yes_'))
+rk, rl = replies(K, nk), replies(L, nl)
+check('Lata is in' in last(rk) and '1/2' in last(rk) and f'wa.me/{L}' in last(rk), 'K: Lata is in (1/2), with her number')
+check('Kavya said yes' in last(rl) and f'wa.me/{K}' in last(rl), 'L: accepted, with Kavya\'s number')
+check(psql(f"SELECT array_to_string(joined_names, ',') || '|' || board_status FROM v_partner_board WHERE join_code = '{code}'") == 'Lata|looking',
+      'board: Lata joined, still looking')
+
+# M joins, Kavya declines
+n = send(M, 'Mohan', f'JOIN {code}', llm=False)
+r = onboard(M, 'Mohan', {'name': 'Mohan, 31, male, football', **SKIP}, replies(M, n))
+nk = len(msgs(K))
+time.sleep(4)
+kc = next((m for m in reversed(msgs(K)) if button(m, 'pj_no_') and 'Mohan' in m['text']), None)
+check(kc is not None, 'K: gets Mohan\'s card')
+nm = len(msgs(M))
+send(K, 'Kavya', button=button(kc, 'pj_no_'))
+rm = replies(M, nm)
+check("can't take you" in last(rm), 'M: told Kavya declined')
+
+# "spots 3", N joins and is accepted, "spots 2" → full; O hears it's full
+n = send(K, 'Kavya', 'spots 3')
+r = replies(K, n)
+check('Up to 3 people' in last(r) and '1 joined' in last(r), 'K: "spots 3" changes the spots')
+n = send(N, 'Nisha', f'JOIN {code}', llm=False)
+r = onboard(N, 'Nisha', {'name': 'Nisha, 27, female, football', **SKIP}, replies(N, n))
+time.sleep(4)
+kc = next((m for m in reversed(msgs(K)) if button(m, 'pj_yes_') and 'Nisha' in m['text']), None)
+nk = len(msgs(K))
+send(K, 'Kavya', button=button(kc, 'pj_yes_'))
+rk = replies(K, nk)
+check('Nisha is in' in last(rk) and '2/3' in last(rk), 'K: Nisha is in (2/3)')
+n = send(K, 'Kavya', 'spots 2')
+r = replies(K, n)
+check('full now' in last(r), 'K: "spots 2" with 2 in → full')
+check(psql(f"SELECT array_to_string(joined_names, ',') || '|' || board_status FROM v_partner_board WHERE join_code = '{code}'")
+      == 'Lata,Nisha|matched', 'board: Full, Lata and Nisha')
+n = send(O, 'Om', f'JOIN {code}', llm=False)
+r = replies(O, n)
+check('full now' in last(r), 'O: told the game is full (no onboarding needed for that)')
+
+n = send(K, 'Kavya', 'any match?')
+r = replies(K, n)
+check('full' in last(r) and 'Lata, Nisha' in last(r), 'K: status shows the game is full, with who joined')
 
 print(f"\n{'ALL PASSED' if not failures else 'FAILED: ' + '; '.join(failures)}")
 sys.exit(1 if failures else 0)

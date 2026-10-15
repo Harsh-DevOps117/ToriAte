@@ -1,4 +1,4 @@
-import { CalendarDays, Clock, MapPin, MessageCircle, Users } from 'lucide-react';
+import { CalendarDays, Clock, MapPin, UserPlus, Users } from 'lucide-react';
 import { activityLabel, activityMeta, titleCase } from '@/lib/activities';
 import type { BoardRequest } from '@/lib/board';
 import { btn } from './ui';
@@ -7,7 +7,7 @@ const ZONE = 'Asia/Kolkata';
 const STATUS: Record<BoardRequest['board_status'], { label: string; className: string }> = {
   looking: { label: 'Looking', className: 'bg-sig-mint' },
   in_talks: { label: 'Confirming', className: 'bg-sig-yellow' },
-  matched: { label: 'Matched', className: 'bg-sig-cream' },
+  matched: { label: 'Full', className: 'bg-sig-cream' },
   closed: { label: 'Closed', className: 'bg-surface-strong' },
 };
 
@@ -34,20 +34,14 @@ export function ago(iso: string) {
   return rtf.format(-Math.round(s / 86400), 'day');
 }
 
-// What someone would send the bot to look for the same game
-function joinText(r: BoardRequest) {
-  const day = dayLabel(r.play_date);
-  const when = day === 'Today' || day === 'Tomorrow' ? day.toLowerCase() : 'on ' + day;
-  const where = [r.area, r.city && titleCase(r.city)].filter(Boolean).join(', ');
-  return `${activityLabel(r.activity)} partner ${when} ${r.time_label || ''}${where ? ' in ' + where : ''}`.replace(/\s+/g, ' ').trim();
-}
 
 export function RequestCard({ r, bot, index = 0 }: { r: BoardRequest; bot: string; index?: number }) {
   const meta = activityMeta(r.activity);
   const st = STATUS[r.board_status];
   const name = r.first_name && /\p{L}/u.test(r.first_name) ? r.first_name : 'Someone';
   const open = r.board_status === 'looking' || r.board_status === 'in_talks';
-  const need = r.players_needed > 1 ? `${r.players_needed} players` : 'a partner';
+  const need = r.players_needed > 1 ? `${r.players_needed} people` : 'a partner';
+  const left = Math.max(0, r.players_needed - r.joined_count);
 
   return (
     <article
@@ -78,14 +72,29 @@ export function RequestCard({ r, bot, index = 0 }: { r: BoardRequest; bot: strin
           <dt className="sr-only">Where</dt>
           <dd className="truncate">{r.area || 'Anywhere'}{r.city ? <span className="text-muted">, {titleCase(r.city)}</span> : null}</dd>
         </div>
-        {(r.skill_level || r.players_needed > 1) && (
-          <div className="flex items-center gap-2.5">
-            <Users className="size-4 shrink-0 text-muted" aria-hidden />
-            <dt className="sr-only">Group</dt>
-            <dd className="flex flex-wrap gap-1.5">
-              {r.skill_level && <span className="rounded-full border border-hairline px-2 text-caption capitalize">{r.skill_level}</span>}
-              {r.players_needed > 1 && <span className="rounded-full border border-hairline px-2 text-caption">needs {r.players_needed}</span>}
-            </dd>
+        <div className="flex items-start gap-2.5">
+          <Users className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden />
+          <dt className="sr-only">Who&apos;s in</dt>
+          <dd className="flex min-w-0 flex-col gap-1.5">
+            <span>
+              {r.joined_count}/{r.players_needed} joined
+              {open && left > 0 && <span className="text-muted"> · {left} {left === 1 ? 'spot' : 'spots'} left</span>}
+            </span>
+            {r.joined_names.length > 0 && (
+              <span className="flex flex-wrap gap-1.5">
+                {r.joined_names.map((n, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 rounded-full bg-surface-soft px-2 py-0.5 text-caption text-ink">
+                    <span className="inline-flex size-4 items-center justify-center rounded-full bg-sig-mint text-[10px] font-semibold">{n.charAt(0).toUpperCase()}</span>
+                    {n}
+                  </span>
+                ))}
+              </span>
+            )}
+          </dd>
+        </div>
+        {r.skill_level && (
+          <div className="flex items-center gap-2.5 pl-[26px]">
+            <span className="rounded-full border border-hairline px-2 text-caption capitalize">{r.skill_level}</span>
           </div>
         )}
       </dl>
@@ -94,15 +103,15 @@ export function RequestCard({ r, bot, index = 0 }: { r: BoardRequest; bot: strin
 
       <footer className="mt-auto flex items-center justify-between gap-3 border-t border-hairline pt-4">
         <span className="flex items-center gap-1.5 text-caption text-muted"><Clock className="size-3.5" aria-hidden />Posted {ago(r.created_at)}</span>
-        {open && bot && (
+        {open && bot && r.join_code && left > 0 && (
           <a
-            href={`https://wa.me/${bot}?text=${encodeURIComponent(joinText(r))}`}
+            href={`https://wa.me/${bot}?text=${encodeURIComponent(`JOIN ${r.join_code}`)}`}
             target="_blank"
             rel="noopener noreferrer"
             className={btn('primary', 'sm', '!px-3 !py-1.5')}
-            title="Tell Tori you want to play this game too. Tori asks you both before sharing numbers."
+            title={`Opens WhatsApp with "JOIN ${r.join_code}". ${name} gets your profile and decides; numbers are shared only if they accept.`}
           >
-            <MessageCircle className="size-4" aria-hidden />I&apos;m in
+            <UserPlus className="size-4" aria-hidden />Join
           </a>
         )}
       </footer>

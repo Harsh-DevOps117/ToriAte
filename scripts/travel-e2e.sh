@@ -100,7 +100,7 @@ trap cleanup EXIT
 until curl -sf http://localhost:15678/healthz >/dev/null; do sleep 2; done
 sleep 5
 
-echo "── SQL scenarios (db/tests/travel_matching.sql, user_profiles.sql, held_messages.sql, matching_v2.sql)"
+echo "── SQL scenarios (db/tests/travel_matching.sql, user_profiles.sql, held_messages.sql, matching_v2.sql, joins.sql)"
 docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/travel_matching.sql 2>&1 \
   | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
 docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/user_profiles.sql 2>&1 \
@@ -108,6 +108,8 @@ docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STO
 docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/held_messages.sql 2>&1 \
   | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
 docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/matching_v2.sql 2>&1 \
+  | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
+docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/joins.sql 2>&1 \
   | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
 status=0
 if [ "${E2E_ONLY:-}" != profile ]; then

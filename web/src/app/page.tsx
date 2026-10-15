@@ -43,15 +43,16 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
             Find someone to play with.
           </h1>
           <p className="max-w-2xl text-title-sm text-muted">
-            Every partner request people send to Tori on WhatsApp, as it happens. Spot a game you like? Tap{' '}
-            <span className="font-medium text-ink">I&apos;m in</span> and Tori connects you. Numbers are only shared once you both say yes.
+            Every game people post to Tori on WhatsApp, as it happens. Spot one you like? Tap{' '}
+            <span className="font-medium text-ink">Join</span>: WhatsApp opens with a code, you send it, and the organiser gets your
+            profile. Numbers are only shared once they say yes.
           </p>
         </header>
 
         <section aria-label="Right now" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <Stat label="Looking right now" value={stats.looking} icon={Search} hint={`${stats.active - stats.looking} more confirming a partner`} />
           <Stat label="Games today" value={stats.today} icon={CalendarCheck2} hint="requested for today" />
-          <Stat label="Matched this week" value={stats.matched_week} icon={HeartHandshake} hint="pairs who both said yes" />
+          <Stat label="Filled this week" value={stats.matched_week} icon={HeartHandshake} hint="games with every spot taken" />
           <Stat label="Sports" value={stats.activities} icon={Trophy} hint="with someone looking" />
         </section>
 

@@ -140,7 +140,7 @@ add('Partner button?', *IF, bool_if(
 unlink('WhatsApp Trigger', 'Switch')
 link('WhatsApp Trigger', 'Partner button?')
 link('Partner button?', 'Read partner button', 0)
-link('Partner button?', 'Profile input?', 1)
+link('Partner button?', 'Join message?', 1)
 
 add('Read partner button', *CODE, code(r"""
 const msg = $json.messages[0];
@@ -300,6 +300,7 @@ intent:
 - find_partner: the person wants someone to play a sport or do an activity with (a partner, opponent, teammates, "someone to play with"), or is answering a question about their unfinished request shown as "Current request".
 - cancel_partner: they want to stop or cancel looking for a sports or activity partner.
 - check_status: they ask whether Tori has found them a partner yet, or for an update on their request ("any match?", "koi mila?", "status").
+- set_spots: they change how many people can join the game they already posted ("make it 4 people", "I need 2 more now"); put the number in players_needed. A new request that also says how many ("need 3 more for football tomorrow") is find_partner.
 - profile_answer: Tori asked about them ("Profile questions asked: yes") and the message gives any of their name, age, gender, interests or social link, even a bare "24", "Harsh" or "female, cricket".
 - profile_or_group: they describe themselves (age, education, hobbies) to be matched with a like-minded person or group, without a specific activity, time and place, when profile questions were not asked.
 - travel_partner: they want someone to travel, commute or share a ride with from one place to another (cab, auto, Uber, Ola, Rapido, bus, train, flight, walking together), want to change their travel request, or are answering a question about their unfinished "Current travel request".
@@ -339,7 +340,7 @@ const SCHEMA = {
   type: 'object', additionalProperties: false,
   required: ['intent', 'activity', 'city', 'area', 'date', 'time_exact', 'part_of_day', 'skill_level', 'players_needed', 'notes', 'travel', 'profile'],
   properties: {
-    intent: { type: 'string', enum: ['find_partner', 'cancel_partner', 'check_status', 'profile_answer', 'profile_or_group', 'travel_partner', 'travel_cancel',
+    intent: { type: 'string', enum: ['find_partner', 'cancel_partner', 'check_status', 'set_spots', 'profile_answer', 'profile_or_group', 'travel_partner', 'travel_cancel',
                                      'travel_consent', 'travel_block', 'travel_report', 'other'] },
     profile: {
       type: 'object', additionalProperties: false,
@@ -403,6 +404,10 @@ const prof = $('Get partner draft').item.json.profile || { status: 'incomplete',
 const awaiting = prof.state === 'awaiting_profile';
 const reply = (t) => ({ json: { route: 'reply', to, text: t } });
 
+// "spots 3": how many people can join their game (public.tori_set_spots, 011)
+const spotsCmd = text.match(/^\s*(?:spots?|players?|people)\s*[:=]?\s*(\d{1,2})\s*$/i);
+if (spotsCmd && !awaiting) return { json: { route: 'spots', to, n: Number(spotsCmd[1]) } };
+
 // Optional onboarding steps need no LLM: "skip", or a link / @handle (checked in public.tori_save_profile)
 if (awaiting && (prof.next === 'social' || prof.next === 'photo' || prof.next === 'about')) {
   if (/^\s*(skip|no|nope|nahi|na|later|not now|none|don'?t have( one)?)\W*$/i.test(text)) {
@@ -431,6 +436,7 @@ if (awaiting && prof.next === 'about' && !['cancel_partner', 'check_status'].inc
   return { json: { route: 'about', to, about_text: text, source: 'text' } };
 }
 if (ai.intent === 'check_status') return { json: { route: 'status', to } };
+if (ai.intent === 'set_spots' && ai.players_needed) return { json: { route: 'spots', to, n: ai.players_needed } };
 if (ai.intent === 'cancel_partner') return { json: { route: 'cancel', to, text: "Done ✅ I've stopped looking for a partner for you. Message me any time to start again." } };
 // Answers to the profile questions (006_profile_functions.repeatable.sql): saved, and the parked request resumes
 if (ai.intent === 'profile_answer' && awaiting) return { json: { route: 'profile', to, name, profile: ai.profile } };
@@ -514,11 +520,12 @@ const d = DateTime.fromISO(f.date, { zone: ZONE });
 const day = d.hasSame(now, 'day') ? 'today' : d.hasSame(now.plus({ days: 1 }), 'day') ? 'tomorrow' : 'on ' + d.toFormat('ccc, d LLL');
 return { json: { route: 'create', to, name, fields,
   text: `Got it! Looking for a ${f.activity.replace(/_/g, ' ')} partner ${day} ${timeLabel} in ${f.area}. I'll message you here as soon as I find someone 🙌`
+        + `\n\n👥 ${f.players_needed} ${f.players_needed === 1 ? 'spot' : 'spots'} · reply *spots 3* to let more people join`
         + "\n\nNo word from me before you head out? Send *any match?* and I'll check 🔎" + boardLine(f.activity, f.city) } };
 """, each=True), [col(3), Y1])
 link('Validate partner request', 'Partner route')
 
-ROUTES = ['create', 'ask', 'cancel', 'legacy', 'menu', 'reply', 'travel', 'profile', 'hold', 'status', 'about']
+ROUTES = ['create', 'ask', 'cancel', 'legacy', 'menu', 'reply', 'travel', 'profile', 'hold', 'status', 'about', 'spots']
 add('Partner route', 'n8n-nodes-base.switch', 3.2, {
     'mode': 'expression', 'numberOutputs': len(ROUTES),
     'output': '={{ ' + json.dumps(ROUTES) + '.indexOf($json.route) }}',
@@ -536,6 +543,7 @@ link('Partner route', 'Save profile', 7)
 link('Partner route', 'Hold: complete request?', 8)
 link('Partner route', 'Partner status', 9)
 link('Partner route', 'About LLM request', 10)
+link('Partner route', 'Set spots', 11)
 
 # Complete requests are geocoded first (workflow 08 "Travel · geocode", cached), for radius matching (009).
 # No usable result (not found, ambiguous, geocoder down) → no coordinates → matched on city + area name.
@@ -940,6 +948,8 @@ if (r.error === 'bad_social') {
   body = (QUESTIONS[r.next] || QUESTIONS.name)();
   if ($json.route === 'hold' && first) {
     body = prefix(body, 'Before I start looking, a few quick questions so I can find you the right partner 🙂\n\n');
+  } else if ($json.route === 'join') {
+    body = prefix(body, 'Before I send your request to join, a few quick questions so the host knows who you are 🙂\n\n');
   }
 } else {
   const done = `Thanks${hi}, you're all set ✅\n\n`;
@@ -949,8 +959,12 @@ if (r.error === 'bad_social') {
     const d = DateTime.fromISO(s.play_date, { zone: 'Asia/Kolkata' });
     const day = d.hasSame(now, 'day') ? 'today' : d.hasSame(now.plus({ days: 1 }), 'day') ? 'tomorrow' : 'on ' + d.toFormat('ccc, d LLL');
     body = text(done + `Got it! Looking for a ${s.activity.replace(/_/g, ' ')} partner ${day} ${s.time_label} in ${s.area}. `
-                + "I'll message you here as soon as I find someone 🙌" + CHECK + boardLine(s.activity, s.city));
+                + "I'll message you here as soon as I find someone 🙌"
+                + `\n\n👥 ${s.spots || 1} ${(s.spots || 1) === 1 ? 'spot' : 'spots'} · reply *spots 3* to let more people join`
+                + CHECK + boardLine(s.activity, s.city));
     request_id = s.request_id;
+  } else if (s && s.join_code && !s.action) {
+    body = text(done + 'Now sending your request to join the game ⏳');
   } else if (s && s.action === 'ask' && s.text) {
     body = text(done + 'Now, about your request: ' + s.text);
   } else {
@@ -960,7 +974,7 @@ if (r.error === 'bad_social') {
 // "about you" was just saved: show what matches will see
 if (r.about_summary && !r.error) body = prefix(body, `Got it 🙌 Here's what I'll share: “${r.about_summary}”\n\n`);
 const plain = body.type === 'text' ? body.text.body : body.interactive.body.text;
-return { json: { to, body, text: plain, request_id } };
+return { json: { to, body, text: plain, request_id, join_code: (r.resume && r.resume.join_code) || '' } };
 """, each=True), [col(6), YP])
 add('Send profile reply', *HTTP, whatsapp_send("{ messaging_product: 'whatsapp', to: $json.to, ...$json.body }"),
     [col(7), YP], **SEND)
@@ -1161,6 +1175,189 @@ add('Save about', *PG, sql(
 link('Read about', 'Save about')
 link('Save about', 'Build profile reply')
 
+# ── 14. Joining a game from the board (db/migrations/011_joins*.sql) ───────────────────────────
+# The board's Join button opens WhatsApp with "JOIN <code>": the joiner's number is proven by WhatsApp.
+# The host gets the joiner's card with Accept / Decline (pj_yes_<id> / pj_no_<id>); every joiner goes to
+# the host. Someone without a profile is onboarded first; the join goes on when it's complete.
+YJ = Y0 + 3900
+add('Join message?', *IF, bool_if(
+    "/^\\s*join\\s+[a-z0-9]{4}\\b/i.test($json.messages?.[0]?.text?.body || '') || "
+    "(($json.messages?.[0]?.interactive?.button_reply?.id) || '').startsWith('pj_')"),
+    [trig['position'][0] + 120, trig['position'][1] + 1300])
+link('Join message?', 'Read join input', 0)
+link('Join message?', 'Profile input?', 1)
+add('Read join input', *CODE, code(r"""
+const msg = $json.messages[0];
+const id = msg.interactive?.button_reply?.id || '';
+const m = id.match(/^pj_(yes|no)_([0-9a-f-]{36})$/);
+const code = ((msg.text?.body || '').match(/join\s+([a-z0-9]{4})/i) || [])[1] || '';
+return { json: { wa: msg.from, name: ($json.contacts?.[0]?.profile?.name || '').trim(), code: code.toUpperCase(),
+                 answer: !!m, accept: m ? m[1] === 'yes' : false, join_id: m ? m[2] : '' } };
+""", each=True), [col(0), YJ])
+add('Join answer?', *IF, bool_if('$json.answer === true'), [col(1), YJ])
+link('Read join input', 'Join answer?')
+link('Join answer?', 'Answer join', 0)
+link('Join answer?', 'Request join', 1)
+
+add('Request join', *PG, sql(
+    'SELECT public.tori_request_join($1, nullif($2, \'\'), $3) AS res, $1 AS "to";',
+    "[ $json.wa, $json.name || '', $json.code ]"), [col(2), YJ + 150], credentials=CRED_POSTGRES)
+add('Join needs profile?', *IF, bool_if("$json.res?.state === 'needs_profile'"), [col(3), YJ + 150])
+link('Request join', 'Join needs profile?')
+link('Join needs profile?', 'Join onboarding', 0)
+link('Join needs profile?', 'Build join messages', 1)
+add('Join onboarding', *CODE, code("return [{ json: { res: $json.res, to: $json.to, route: 'join', first: true } }];"),
+    [col(4), YJ + 300])
+link('Join onboarding', 'Build profile reply')
+
+JOIN_JS = r'''const BOARD = ($env.BOARD_PUBLIC_URL || '').replace(/\/+$/, '');
+const ZONE = 'Asia/Kolkata';
+const CHECK = "\n\nNo word from me before you head out? Send *any match?* and I'll check 🔎";
+const dayWord = (iso) => {
+  const now = DateTime.now().setZone(ZONE);
+  const d = DateTime.fromISO(String(iso).slice(0, 10), { zone: ZONE });
+  return d.hasSame(now, 'day') ? 'today' : d.hasSame(now.plus({ days: 1 }), 'day') ? 'tomorrow' : d.toFormat('ccc d LLL');
+};
+const recent = (iso) => !!iso && Date.now() - new Date(iso).getTime() < 23 * 3600e3;
+const SOCIAL = (k) => (k === 'linkedin' ? 'LinkedIn' : 'Instagram');
+const photoUrl = (o) => (BOARD && o && o.photo_token ? `${BOARD}/p/${o.photo_token}` : null);
+const textBody = (t) => ({ type: 'text', text: { preview_url: false, body: t } });
+const boardTail = BOARD ? `\n\n👀 Other games: ${BOARD}` : '';
+const game = (q) => `${q.activity.replace(/_/g, ' ')} game ${dayWord(q.play_date)}, ${q.time_label}, in ${q.area}`;
+const contactBody = (lead, o) => {
+  const lines = [lead, ''];
+  if (o.social_url) lines.push(`${SOCIAL(o.social_kind)}: ${o.social_url}`);
+  lines.push(`Say hi 👉 https://wa.me/${o.wa_id}`);
+  const img = photoUrl(o);
+  return img ? { type: 'image', image: { link: img, caption: lines.join('\n') } } : textBody(lines.join('\n'));
+};
+'''
+
+add('Build join messages', *CODE, code(r"""
+""" + JOIN_JS + r"""
+// "JOIN <code>": tell the joiner; send the host the joiner's card with Accept / Decline
+const r = $json.res || {};
+const to = $json.to;
+const q = r.request;
+const out = [];
+const push = (wa, body, inside = true, kind = 'match_update') => out.push({ json: { to: wa, body, inside, kind, join_id: r.join_id || '' } });
+const host = (r.host && r.host.offer && r.host.offer.name) || 'the host';
+if (r.state === 'requested') {
+  const o = r.joiner.offer;
+  const lines = [`🙋 *${o.name || 'Someone'}* wants to join your ${game(q)}! (${q.filled}/${q.spots} joined so far)`, ''];
+  if (o.age) lines.push(`*Age:* ${o.age}`);
+  if (o.interests && o.interests.length) lines.push(`*Interests:* ${o.interests.map((i) => i.replace(/_/g, ' ')).join(', ')}`);
+  if (o.skill) lines.push(`*Level:* ${o.skill}`);
+  if (o.about) lines.push(`*About:* ${o.about}`);
+  if (o.social_url) lines.push(`*${SOCIAL(o.social_kind)}:* ${o.social_url}`);
+  else if (o.has_social) lines.push(`*${SOCIAL(o.social_kind)}:* shared once you accept`);
+  lines.push('', 'Let them join?');
+  const img = photoUrl(o);
+  const card = { type: 'interactive', interactive: { type: 'button',
+    ...(img ? { header: { type: 'image', image: { link: img } } } : {}),
+    body: { text: lines.join('\n') },
+    action: { buttons: [ { type: 'reply', reply: { id: 'pj_yes_' + r.join_id, title: 'Accept' } },
+                         { type: 'reply', reply: { id: 'pj_no_' + r.join_id, title: 'Decline' } } ] } } };
+  const reachable = recent(r.host.last_message_at);
+  push(r.host.wa_id, card, reachable, 'join_request');
+  push(to, textBody(`Done ✅ I've asked ${host} if you can join their ${game(q)}. I'll tell you as soon as they answer ⏳`
+                    + (reachable ? '' : `\n\n${host} hasn't been on Tori today, so they'll see it the next time they check in.` + CHECK)));
+} else {
+  const said = {
+    unknown: `I couldn't find a game with the code ${r.code || ''} 🤔 Check the code on the board and try again.`,
+    own: "That's your own game 🙂 Share the board so others can join.",
+    closed: 'That game is over or was cancelled.',
+    full: `That game is full now 😕`,
+    already_pending: `You've already asked to join. Waiting for ${host} ⏳`,
+    declined_before: `${host} couldn't take you for this one.`,
+  }[r.state];
+  if (r.state === 'already_joined') push(to, contactBody(`You're already in ✅ ${game(q)}.`, r.host.connected));
+  else push(to, textBody((said || "Sorry, I couldn't do that. Please try again 🙏") + (['closed', 'full', 'declined_before'].includes(r.state) ? boardTail : '')));
+}
+return out;
+"""), [col(4), YJ + 150])
+
+add('Answer join', *PG, sql(
+    "SELECT public.tori_answer_join($1, nullif($2, '')::uuid, $3::boolean) AS res, $1 AS \"to\";",
+    '[ $json.wa, $json.join_id, String($json.accept) ]'), [col(2), YJ - 150], credentials=CRED_POSTGRES)
+add('Build join answer messages', *CODE, code(r"""
+""" + JOIN_JS + r"""
+// The host's Accept / Decline: tell both; when the game fills up, tell the others who were waiting
+const r = $json.res || {};
+const to = $json.to;
+const out = [];
+const push = (wa, body, inside = true) => out.push({ json: { to: wa, body, inside, kind: 'match_update', join_id: r.join_id || '' } });
+if (r.state === 'unknown' || !r.request) {
+  push(to, textBody("This request isn't available any more."));
+  return out;
+}
+const q = r.request;
+const jn = (r.joiner.offer && r.joiner.offer.name) || 'They';
+const hn = (r.host.offer && r.host.offer.name) || 'The host';
+const isFull = q.filled >= q.spots;
+if (!r.changed) {
+  push(to, r.state === 'accepted' ? `${jn} is already in ✅` : r.state === 'declined' ? `Already done 👍` : `This request isn't open any more.`);
+} else if (r.state === 'accepted') {
+  push(to, contactBody(`✅ ${jn} is in! (${q.filled}/${q.spots} joined)` + (isFull ? ' Your game is full now 🎉' : ''), r.joiner.connected));
+  push(r.joiner.wa_id, contactBody(`✅ ${hn} said yes! You're in their ${game(q)}.`, r.host.connected), recent(r.joiner.last_message_at));
+  for (const wa of r.full_joiners || []) {
+    push(wa, textBody(`Sorry, ${hn}'s ${game(q)} is full now 😕` + boardTail));
+  }
+} else if (r.state === 'declined') {
+  push(to, textBody(`Okay, I've let ${jn} know 👍`));
+  push(r.joiner.wa_id, textBody(`${hn} can't take you for their ${game(q)} 😕` + boardTail), recent(r.joiner.last_message_at));
+} else if (r.state === 'full') {
+  push(to, textBody(`Your game is already full, so I couldn't add ${jn}. Reply *spots ${q.spots + 1}* to open another spot.`));
+} else {
+  push(to, textBody('That game is over.'));
+}
+return out.map((o) => (typeof o.json.body === 'string' ? { json: { ...o.json, body: textBody(o.json.body) } } : o));
+"""), [col(3), YJ - 150])
+link('Answer join', 'Build join answer messages')
+link('Build join messages', 'Join reachable?')
+link('Build join answer messages', 'Join reachable?')
+add('Join reachable?', *IF, bool_if('$json.inside'), [col(5), YJ])
+link('Join reachable?', 'Send prepared message', 0)
+link('Join reachable?', 'Hold join message', 1)
+add('Hold join message', *PG, sql(
+    "SELECT public.tori_hold_join($1, $2, nullif($3, '')::uuid, $4::jsonb);",
+    '[ $json.to, $json.kind, $json.join_id, JSON.stringify($json.body) ]'),
+    [col(6), YJ + 150], credentials=CRED_POSTGRES, onError='continueRegularOutput')
+
+# onboarding that started with a JOIN is done: send the join on
+link('Send profile reply', 'Resumed join?')
+add('Resumed join?', *IF, bool_if("!!$('Build profile reply').item.json.join_code"), [col(8), YP + 300])
+add('Resume join', *CODE, code(r"""
+const b = $('Build profile reply').item.json;
+return { json: { wa: b.to, name: '', code: b.join_code } };
+""", each=True), [col(9), YP + 300])
+link('Resumed join?', 'Resume join', 0)
+link('Resume join', 'Request join')
+
+# "spots 3": how many people can join (public.tori_set_spots); a full game with more spots reopens
+add('Set spots', *PG, sql('SELECT public.tori_set_spots($1, $2::int) AS res, $1 AS "to";', '[ $json.to, $json.n ]'),
+    [col(5), YJ + 600], credentials=CRED_POSTGRES)
+add('Build spots reply', *CODE, code(r"""
+""" + JOIN_JS + r"""
+const r = $json.res || {};
+if (r.state !== 'ok') {
+  return [{ json: { to: $json.to, request_id: '',
+    text: "You don't have a live game right now. Tell me what you want to play, when and where 🙂" } }];
+}
+const q = r.request;
+const t = `Done ✅ Up to ${q.spots} ${q.spots === 1 ? 'person' : 'people'} can join your ${game(q)} (${q.filled} joined so far).`
+  + (r.reopened ? " It's open again 👀" : '')
+  + (r.too_few ? ` Heads-up: ${q.filled} have already joined.` : '');
+return [{ json: { to: $json.to, text: t + (q.filled >= q.spots ? ' Your game is full now 🎉' : ''), request_id: r.reopened || '' } },
+        ...(r.full_joiners || []).map((wa) => ({ json: { to: wa, request_id: '',
+          text: `Sorry, the ${game(q)} you asked to join is full now 😕` + boardTail } }))];
+"""), [col(6), YJ + 600])
+link('Set spots', 'Build spots reply')
+link('Build spots reply', 'Send partner text')
+add('Spots reopened?', *IF, bool_if('!!$json.request_id'), [col(7), YJ + 750])
+link('Build spots reply', 'Spots reopened?')
+link('Spots reopened?', 'Find partner match', 0)
+
 # ── 11. People outside WhatsApp's 24-hour window (db/migrations/008_held_messages*.sql) ────────
 # Offers and match updates for someone who hasn't written in 24 h are kept in public.tori_held_messages
 # ("Hold offer", "Hold update") and sent the next time they write, before the normal reply (this node sits
@@ -1201,10 +1398,18 @@ const dayOf = (iso) => {
 const lines = s.requests.map((r) => {
   const what = `${r.activity.replace(/_/g, ' ')} ${dayOf(r.play_date)} ${r.time_label} in ${r.area}`;
   const cap = what.charAt(0).toUpperCase() + what.slice(1);
-  if (r.waiting_on === 'you') return `🎉 ${cap}: ${r.partner} wants to play! Tap *Yes, connect* on my message 👆`;
-  if (r.waiting_on === 'them') return `⏳ ${cap}: waiting for ${r.partner} to answer.`;
-  return `🔎 ${cap}: still looking, nobody yet.`;
+  const joined = (r.joined || []).length
+    ? ` 👥 ${(r.joined || []).length}/${r.spots} joined: ${r.joined.join(', ')}.` : '';
+  const asking = r.pending_joins > 0 ? ` 🙋 ${r.pending_joins} waiting for your OK (tap Accept above).` : '';
+  if (r.status === 'matched') return `✅ ${cap}: full!${joined}`;
+  if (r.waiting_on === 'you') return `🎉 ${cap}: ${r.partner} wants to play! Tap *Interested* on my message 👆${joined}${asking}`;
+  if (r.waiting_on === 'them') return `⏳ ${cap}: waiting for ${r.partner} to answer.${joined}${asking}`;
+  return `🔎 ${cap}: ${joined || asking ? 'still room for more.' : 'still looking, nobody yet.'}${joined}${asking}`;
 });
+for (const j of s.joins || []) {
+  const what = `${j.activity.replace(/_/g, ' ')} ${dayOf(j.play_date)} ${j.time_label} in ${j.area}`;
+  lines.push(j.status === 'accepted' ? `✅ You're in ${j.host}'s ${what}.` : `🙋 Asked to join ${j.host}'s ${what}: waiting for them.`);
+}
 const text = lines.length
   ? lines.join('\n') + "\n\nI'll message you here as soon as something changes."
   : "You're not looking for a partner right now. Tell me what you want to play, when and where, "
