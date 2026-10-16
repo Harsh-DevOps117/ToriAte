@@ -140,11 +140,14 @@ DECLARE
   v_full  text[] := '{}';
   v_state text;
 BEGIN
-  SELECT * INTO j FROM public.partner_joins WHERE id = p_join_id FOR UPDATE;
+  -- lock order: the game first, then the join (as tori_request_join), so taps on several joins of one
+  -- game queue up on the game row instead of deadlocking with the "game is full" update
+  SELECT * INTO r FROM public.partner_requests
+   WHERE id = (SELECT request_id FROM public.partner_joins WHERE id = p_join_id) FOR UPDATE;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('state', 'unknown');
   END IF;
-  SELECT * INTO r FROM public.partner_requests WHERE id = j.request_id FOR UPDATE;
+  SELECT * INTO j FROM public.partner_joins WHERE id = p_join_id FOR UPDATE;
   IF r.wa_id <> p_host_wa THEN
     RETURN jsonb_build_object('state', 'unknown');
   END IF;
