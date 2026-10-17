@@ -157,7 +157,8 @@ async function googleCalendar(req, res, path, raw) {
 
 // Media a user "sent": GET /whatsapp/<version>/<media id> → { url, mime_type }, then GET that url (with the
 // token) → the bytes. Media IDs starting with BIG answer 6 MB, GIF answer a GIF (both refused by the bot),
-// VOICE answer a real spoken voice note (fixtures/voice-note.ogg, opus) for Whisper to transcribe.
+// VOICE answer a real spoken voice note (fixtures/voice-note.ogg, opus) for Whisper to transcribe;
+// VOICEREQ a spoken partner request (fixtures/voice-request.ogg).
 const TINY_JPEG = Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==', 'base64');
 const mediaMime = (id) => (id.startsWith('GIF') ? 'image/gif' : id.startsWith('VOICE') ? 'audio/ogg; codecs=opus' : 'image/jpeg');
 function whatsappMedia(req, res, path) {
@@ -166,6 +167,7 @@ function whatsappMedia(req, res, path) {
   if (file) {
     const id = file[1];
     const bytes = id.startsWith('BIG') ? Buffer.alloc(6 * 1024 * 1024, 1)
+      : id.startsWith('VOICEREQ') ? fs.readFileSync(pathLib.join(__dirname, 'fixtures', 'voice-request.ogg'))
       : id.startsWith('VOICE') ? fs.readFileSync(pathLib.join(__dirname, 'fixtures', 'voice-note.ogg')) : TINY_JPEG;
     res.writeHead(200, { 'content-type': mediaMime(id), 'content-length': bytes.length });
     return res.end(bytes);

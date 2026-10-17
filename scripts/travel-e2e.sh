@@ -25,7 +25,18 @@ w = json.load(open(sys.argv[1]))
 t = next(n for n in w['nodes'] if n['name'] == 'WhatsApp Trigger')
 pos = t['position']
 t.clear()
-t.update({'parameters': {'mode': 'runOnceForEachItem', 'jsCode': 'return { json: $json.body };'},
+# Meta-shaped bodies (the voice relay posts those) are checked and unwrapped like the real WhatsApp Trigger
+# does: a wrong x-hub-signature-256 is dropped silently, exactly as in production
+t.update({'parameters': {'jsCode': '''const crypto = require('crypto');
+const out = [];
+for (const i of $input.all()) {
+  const b = i.json.body;
+  if (!(b && b.entry)) { out.push({ json: b }); continue; }
+  const want = 'sha256=' + crypto.createHmac('sha256', $env.BOT_META_APP_SECRET || '').update(JSON.stringify(b)).digest('hex');
+  if (!$env.BOT_META_APP_SECRET || i.json.headers['x-hub-signature-256'] !== want) continue;
+  out.push({ json: { ...b.entry[0].changes[0].value, field: 'messages' } });
+}
+return out;'''},
           'id': '11111111-1111-4111-8111-111111111111', 'name': 'WhatsApp Trigger', 'type': 'n8n-nodes-base.code',
           'typeVersion': 2, 'position': pos})
 w['nodes'].append({'parameters': {'httpMethod': 'POST', 'path': 'wa-test', 'options': {}},
@@ -73,6 +84,8 @@ TRAVEL_MATCH_TEMPLATE=travel_match_found
 TRAVEL_TRIP_FLOW_ID=mock-flow-1
 TRAVEL_TRIP_FLOW_MODE=draft
 BOARD_PUBLIC_URL=https://board.test
+BOT_RELAY_URL=http://localhost:5678/webhook/wa-test
+BOT_META_APP_SECRET=e2e-test-app-secret
 EOF
 cat > "$T/override.yml" <<EOF
 services:

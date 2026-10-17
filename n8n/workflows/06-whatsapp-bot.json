@@ -8865,54 +8865,6 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "3019c287-3e37-57de-bbfb-88ad3549594b",
-              "leftValue": "={{ $json.expecting === true }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "looseTypeValidation": true,
-        "options": {}
-      },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        -724,
-        18184
-      ],
-      "id": "5e98cb40-0c12-5841-8132-36246db4a9a6",
-      "name": "About step?"
-    },
-    {
-      "parameters": {
-        "jsCode": "return [{ json: { to: $('Read profile input').first().json.wa_id,\n  text: \"🎙️ I can only listen to voice notes when you're telling me about yourself. Please type your message 🙏\" } }];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -464,
-        18334
-      ],
-      "id": "06756921-f8ac-5a56-8d66-89d0f6bd7be7",
-      "name": "Voice not now"
-    },
-    {
-      "parameters": {
         "method": "GET",
         "url": "={{ ($env.BOT_WHATSAPP_GRAPH_URL || 'https://graph.facebook.com/v19.0') + '/' + $('Read profile input').first().json.media_id }}",
         "sendHeaders": true,
@@ -8934,7 +8886,7 @@
         -464,
         18034
       ],
-      "id": "64719ca5-5de8-5576-9f2a-0f2d21cab7a8",
+      "id": "3019c287-3e37-57de-bbfb-88ad3549594b",
       "name": "Get voice URL",
       "onError": "continueRegularOutput"
     },
@@ -8966,7 +8918,7 @@
         -204,
         18034
       ],
-      "id": "bcb4e359-4bf5-5696-861b-265c3d2783af",
+      "id": "5e98cb40-0c12-5841-8132-36246db4a9a6",
       "name": "Download voice",
       "onError": "continueRegularOutput"
     },
@@ -8980,7 +8932,7 @@
         56,
         18034
       ],
-      "id": "faefaa39-ca89-5679-9179-98d1be13c44d",
+      "id": "06756921-f8ac-5a56-8d66-89d0f6bd7be7",
       "name": "Name voice file"
     },
     {
@@ -9023,7 +8975,7 @@
         316,
         18034
       ],
-      "id": "8072cee3-20fc-5ce1-a74f-37f6d0c54550",
+      "id": "64719ca5-5de8-5576-9f2a-0f2d21cab7a8",
       "name": "Transcribe voice",
       "credentials": {
         "httpHeaderAuth": {
@@ -9038,7 +8990,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// after 3 failed tries $json holds the error: about_text stays empty → \"I couldn't make that out\"\nconst ok = $json.statusCode === 200;\nreturn [{ json: { to: $('Read profile input').first().json.wa_id,\n                  about_text: ok ? String(($json.body && $json.body.text) || '').trim() : '', source: 'voice' } }];\n"
+        "jsCode": "// after 3 failed tries $json holds the error: the text stays empty → \"I couldn't make that out\"\nconst ok = $json.statusCode === 200;\nconst text = ok ? String(($json.body && $json.body.text) || '').trim() : '';\nreturn [{ json: { to: $('Read profile input').first().json.wa_id, text, about_text: text, source: 'voice',\n                  about: $('Expecting about?').first().json.expecting === true } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -9046,8 +8998,135 @@
         576,
         18034
       ],
-      "id": "690c9f38-6b60-5759-aadc-52173a3678fc",
-      "name": "Voice to about"
+      "id": "bcb4e359-4bf5-5696-861b-265c3d2783af",
+      "name": "Voice transcript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "faefaa39-ca89-5679-9179-98d1be13c44d",
+              "leftValue": "={{ $json.about === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        836,
+        18034
+      ],
+      "id": "8072cee3-20fc-5ce1-a74f-37f6d0c54550",
+      "name": "About step?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "690c9f38-6b60-5759-aadc-52173a3678fc",
+              "leftValue": "={{ !!$json.text }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1096,
+        17884
+      ],
+      "id": "82f88871-b4ed-5501-aac6-a8979f734d0a",
+      "name": "Voice heard?"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { to: $json.to, text: \"🎙️ Sorry, I couldn't make out that voice note. Please try again or type it 🙏\" } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1356,
+        18034
+      ],
+      "id": "aad4623b-79af-5262-90cb-a83d2dab2398",
+      "name": "Voice not understood"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst trig = $('WhatsApp Trigger').first().json;\nconst msg = trig.messages[0];\nconst value = {\n  messaging_product: 'whatsapp', metadata: trig.metadata || {}, contacts: trig.contacts || [],\n  messages: [{ from: msg.from, id: msg.id + '.voice', timestamp: msg.timestamp || String(Math.floor(Date.now() / 1000)),\n               type: 'text', text: { body: $json.text } }],\n};\nconst raw = JSON.stringify({ object: 'whatsapp_business_account',\n                             entry: [{ id: 'voice-relay', changes: [{ field: 'messages', value }] }] });\nconst signature = 'sha256=' + crypto.createHmac('sha256', $env.BOT_META_APP_SECRET || '').update(raw).digest('hex');\nreturn [{ json: { raw, signature } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1356,
+        17734
+      ],
+      "id": "ee1ea5a9-f4d2-5cf4-a3dd-9339d577f72d",
+      "name": "Relay voice as text"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BOT_RELAY_URL || 'http://localhost:5678/webhook/e3c3d145-ffbd-454f-92ca-11a5e388a3ea/webhook' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-hub-signature-256",
+              "value": "={{ $json.signature }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.raw }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1616,
+        17734
+      ],
+      "id": "854fd977-6a74-528b-8935-b5b020e080d8",
+      "name": "Send to bot as text",
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
@@ -9060,7 +9139,7 @@
         836,
         18484
       ],
-      "id": "82f88871-b4ed-5501-aac6-a8979f734d0a",
+      "id": "6c1de301-f4b6-5e65-9025-3caf255be6be",
       "name": "About LLM request"
     },
     {
@@ -9088,7 +9167,7 @@
         1096,
         18484
       ],
-      "id": "aad4623b-79af-5262-90cb-a83d2dab2398",
+      "id": "4efb93af-40be-5e83-89a8-f8aa5e859d8a",
       "name": "Understand about (LLM)",
       "credentials": {
         "httpHeaderAuth": {
@@ -9108,7 +9187,7 @@
         1356,
         18484
       ],
-      "id": "ee1ea5a9-f4d2-5cf4-a3dd-9339d577f72d",
+      "id": "68273b06-9e2d-54a4-a12d-89ff5284f419",
       "name": "Read about"
     },
     {
@@ -9125,7 +9204,7 @@
         1616,
         18484
       ],
-      "id": "854fd977-6a74-528b-8935-b5b020e080d8",
+      "id": "81c43797-4fcd-5232-bb57-0b4210cbf91f",
       "name": "Save about",
       "credentials": {
         "postgres": {
@@ -9145,7 +9224,7 @@
           },
           "conditions": [
             {
-              "id": "6c1de301-f4b6-5e65-9025-3caf255be6be",
+              "id": "e1358ce6-0a4e-50b1-a6a6-e662870d9a46",
               "leftValue": "={{ /^\\s*join\\s+[a-z0-9]{4}\\b/i.test($json.messages?.[0]?.text?.body || '') || (($json.messages?.[0]?.interactive?.button_reply?.id) || '').startsWith('pj_') }}",
               "rightValue": "",
               "operator": {
@@ -9166,7 +9245,7 @@
         120,
         9252
       ],
-      "id": "4efb93af-40be-5e83-89a8-f8aa5e859d8a",
+      "id": "4e0dd096-2c3e-5e6a-a3a3-32aa9e6986b8",
       "name": "Join message?"
     },
     {
@@ -9180,7 +9259,7 @@
         -1504,
         18884
       ],
-      "id": "68273b06-9e2d-54a4-a12d-89ff5284f419",
+      "id": "e59e2d34-28a5-5d51-a466-cac654468c30",
       "name": "Read join input"
     },
     {
@@ -9194,7 +9273,7 @@
           },
           "conditions": [
             {
-              "id": "81c43797-4fcd-5232-bb57-0b4210cbf91f",
+              "id": "9a8a3055-67d4-5fed-9edc-14450550d011",
               "leftValue": "={{ $json.answer === true }}",
               "rightValue": "",
               "operator": {
@@ -9215,7 +9294,7 @@
         -1244,
         18884
       ],
-      "id": "e1358ce6-0a4e-50b1-a6a6-e662870d9a46",
+      "id": "896908d7-a763-54f2-8fdf-d50596d28a11",
       "name": "Join answer?"
     },
     {
@@ -9232,7 +9311,7 @@
         -984,
         19034
       ],
-      "id": "4e0dd096-2c3e-5e6a-a3a3-32aa9e6986b8",
+      "id": "c315e093-b42e-5a4e-ae3c-f12d3911c0d1",
       "name": "Request join",
       "credentials": {
         "postgres": {
@@ -9252,7 +9331,7 @@
           },
           "conditions": [
             {
-              "id": "e59e2d34-28a5-5d51-a466-cac654468c30",
+              "id": "3ab1ba58-a110-5a4a-b770-caa7fe6cb052",
               "leftValue": "={{ $json.res?.state === 'needs_profile' }}",
               "rightValue": "",
               "operator": {
@@ -9273,7 +9352,7 @@
         -724,
         19034
       ],
-      "id": "9a8a3055-67d4-5fed-9edc-14450550d011",
+      "id": "5ac23ad2-1d67-52bc-b60f-9479577d31d4",
       "name": "Join needs profile?"
     },
     {
@@ -9286,7 +9365,7 @@
         -464,
         19184
       ],
-      "id": "896908d7-a763-54f2-8fdf-d50596d28a11",
+      "id": "bd69c17b-2fb4-5ade-abb9-36e72f6be78a",
       "name": "Join onboarding"
     },
     {
@@ -9299,7 +9378,7 @@
         -464,
         19034
       ],
-      "id": "c315e093-b42e-5a4e-ae3c-f12d3911c0d1",
+      "id": "1c7dc60e-85da-56b6-bc89-659ea2ace442",
       "name": "Build join messages"
     },
     {
@@ -9316,7 +9395,7 @@
         -984,
         18734
       ],
-      "id": "3ab1ba58-a110-5a4a-b770-caa7fe6cb052",
+      "id": "9d69346c-bdef-50c5-972c-26643650c9d7",
       "name": "Answer join",
       "credentials": {
         "postgres": {
@@ -9335,7 +9414,7 @@
         -724,
         18734
       ],
-      "id": "5ac23ad2-1d67-52bc-b60f-9479577d31d4",
+      "id": "7406f41b-676d-564c-a7c0-f0211023e001",
       "name": "Build join answer messages"
     },
     {
@@ -9349,7 +9428,7 @@
           },
           "conditions": [
             {
-              "id": "bd69c17b-2fb4-5ade-abb9-36e72f6be78a",
+              "id": "b5d5e702-1a76-5566-a24c-6180339289bf",
               "leftValue": "={{ $json.inside }}",
               "rightValue": "",
               "operator": {
@@ -9370,7 +9449,7 @@
         -204,
         18884
       ],
-      "id": "1c7dc60e-85da-56b6-bc89-659ea2ace442",
+      "id": "4512cc3b-136f-5b25-bcd6-4526a0b40a20",
       "name": "Join reachable?"
     },
     {
@@ -9387,7 +9466,7 @@
         56,
         19034
       ],
-      "id": "9d69346c-bdef-50c5-972c-26643650c9d7",
+      "id": "be29e299-6f9c-5dae-b6a7-dc54fb2a0d26",
       "name": "Hold join message",
       "credentials": {
         "postgres": {
@@ -9408,7 +9487,7 @@
           },
           "conditions": [
             {
-              "id": "7406f41b-676d-564c-a7c0-f0211023e001",
+              "id": "178af3a7-3269-54e3-8e11-3d093dede82f",
               "leftValue": "={{ !!$('Build profile reply').item.json.join_code }}",
               "rightValue": "",
               "operator": {
@@ -9429,7 +9508,7 @@
         576,
         17584
       ],
-      "id": "b5d5e702-1a76-5566-a24c-6180339289bf",
+      "id": "36bacc2b-d9a1-5a87-89ff-315387950f84",
       "name": "Resumed join?"
     },
     {
@@ -9443,7 +9522,7 @@
         836,
         17584
       ],
-      "id": "4512cc3b-136f-5b25-bcd6-4526a0b40a20",
+      "id": "bf3c4746-5335-5f42-b17c-2e25fb0903ec",
       "name": "Resume join"
     },
     {
@@ -9460,7 +9539,7 @@
         -204,
         19484
       ],
-      "id": "be29e299-6f9c-5dae-b6a7-dc54fb2a0d26",
+      "id": "cd08db52-8785-5093-a302-c4eaedb1d107",
       "name": "Set spots",
       "credentials": {
         "postgres": {
@@ -9479,7 +9558,7 @@
         56,
         19484
       ],
-      "id": "178af3a7-3269-54e3-8e11-3d093dede82f",
+      "id": "3209328e-694e-5548-8bdc-9347c52da63d",
       "name": "Build spots reply"
     },
     {
@@ -9493,7 +9572,7 @@
           },
           "conditions": [
             {
-              "id": "36bacc2b-d9a1-5a87-89ff-315387950f84",
+              "id": "3dd070cd-9271-5c7c-a0f4-64b9d3ee6428",
               "leftValue": "={{ !!$json.request_id }}",
               "rightValue": "",
               "operator": {
@@ -9514,7 +9593,7 @@
         316,
         19634
       ],
-      "id": "bf3c4746-5335-5f42-b17c-2e25fb0903ec",
+      "id": "6b349a40-9664-5180-910a-24d261d673a9",
       "name": "Spots reopened?"
     },
     {
@@ -9530,7 +9609,7 @@
         -1504,
         17384
       ],
-      "id": "cd08db52-8785-5093-a302-c4eaedb1d107",
+      "id": "89982cc8-9727-5914-88f3-8c1c32b3f55a",
       "name": "Held messages (about)"
     },
     {
@@ -9547,7 +9626,7 @@
         600,
         7432
       ],
-      "id": "3209328e-694e-5548-8bdc-9347c52da63d",
+      "id": "215a1ce9-5e4a-583d-b0bb-31d188200cc7",
       "name": "Take held messages",
       "credentials": {
         "postgres": {
@@ -9567,7 +9646,7 @@
         840,
         7432
       ],
-      "id": "3dd070cd-9271-5c7c-a0f4-64b9d3ee6428",
+      "id": "caa67f75-e07b-5b65-bfaf-bf9a030c40bf",
       "name": "Held to send"
     },
     {
@@ -9595,7 +9674,7 @@
         1080,
         7432
       ],
-      "id": "6b349a40-9664-5180-910a-24d261d673a9",
+      "id": "208e2766-d17e-5079-8b88-6025621e2025",
       "name": "Send held message",
       "credentials": {
         "httpHeaderAuth": {
@@ -9619,7 +9698,7 @@
         -204,
         17684
       ],
-      "id": "89982cc8-9727-5914-88f3-8c1c32b3f55a",
+      "id": "88923e92-9122-587e-87f3-6d821836cc64",
       "name": "Partner status",
       "credentials": {
         "postgres": {
@@ -9639,7 +9718,7 @@
         56,
         17684
       ],
-      "id": "215a1ce9-5e4a-583d-b0bb-31d188200cc7",
+      "id": "3172851e-74e0-57c5-8c47-dac2d88e7eac",
       "name": "Build status reply"
     }
   ],
@@ -12431,36 +12510,7 @@
       "main": [
         [
           {
-            "node": "About step?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "About step?": {
-      "main": [
-        [
-          {
             "node": "Get voice URL",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Voice not now",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Voice not now": {
-      "main": [
-        [
-          {
-            "node": "Send partner text",
             "type": "main",
             "index": 0
           }
@@ -12504,18 +12554,76 @@
       "main": [
         [
           {
-            "node": "Voice to about",
+            "node": "Voice transcript",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Voice to about": {
+    "Voice transcript": {
+      "main": [
+        [
+          {
+            "node": "About step?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "About step?": {
       "main": [
         [
           {
             "node": "About LLM request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Voice heard?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Voice heard?": {
+      "main": [
+        [
+          {
+            "node": "Relay voice as text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Voice not understood",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Voice not understood": {
+      "main": [
+        [
+          {
+            "node": "Send partner text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Relay voice as text": {
+      "main": [
+        [
+          {
+            "node": "Send to bot as text",
             "type": "main",
             "index": 0
           }

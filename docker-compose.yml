@@ -41,6 +41,8 @@ x-n8n-env: &n8n-env
   # voice notes ("about you"): Whisper endpoint and model; empty = Groq whisper-large-v3-turbo with the LLM key
   TRANSCRIBE_BASE_URL: ${TRANSCRIBE_BASE_URL:-}
   TRANSCRIBE_MODEL: ${TRANSCRIBE_MODEL:-}
+  # where voice notes are relayed as text (workflow 06 itself); empty = this n8n's WhatsApp Trigger
+  BOT_RELAY_URL: ${BOT_RELAY_URL:-}
   # travel partner matching (workflows 07–12); empty = the default in public.travel_cfg()
   TRAVEL_MAX_SOURCE_DISTANCE_KM: ${TRAVEL_MAX_SOURCE_DISTANCE_KM:-}
   TRAVEL_MAX_DESTINATION_DISTANCE_KM: ${TRAVEL_MAX_DESTINATION_DISTANCE_KM:-}
@@ -161,6 +163,8 @@ services:
     environment:
       <<: *n8n-env
       GOOGLE_SERVICE_ACCOUNT_JSON_B64: ${GOOGLE_SERVICE_ACCOUNT_JSON_B64}
+      # workflow 06 signs relayed voice notes with it (the WhatsApp Trigger checks Meta's signature)
+      BOT_META_APP_SECRET: ${BOT_META_APP_SECRET:-}
     volumes:
       - n8ndata:/home/node/.n8n
       - ./n8n:/opt/tori/n8n:ro,z

@@ -345,5 +345,13 @@ n = send(K, 'Kavya', 'any match?')
 r = replies(K, n)
 check('full' in last(r) and 'Lata, Nisha' in last(r), 'K: status shows the game is full, with who joined')
 
+# ── 8. A voice note works like typing: transcribed, then handled as text ────────────────────────
+n = send(P, 'Pranav Rao', voice='VOICEREQ1')
+r = replies(P, n, timeout=90)
+check(any('badminton partner tomorrow' in m['text'] and 'HSR Layout' in m['text'] for m in r),
+      'P: a spoken request ("badminton partner tomorrow 7 PM in HSR Layout") is acked like a typed one')
+check(psql("SELECT count(*) FROM tori_messages WHERE wa_message_id LIKE '%.voice' AND body ILIKE '%badminton%'") == '1',
+      'P: the transcript is logged as a text message from Pranav')
+
 print(f"\n{'ALL PASSED' if not failures else 'FAILED: ' + '; '.join(failures)}")
 sys.exit(1 if failures else 0)

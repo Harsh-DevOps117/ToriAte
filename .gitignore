@@ -39,3 +39,11 @@ plan/*.json
 
 # paid font (Pangram Pangram): never commit it
 web/public/fonts/NeueMachina*
+
+# internal planning docs, kept local
+/payment.md
+
+# local scratch from tests and docker builds
+/tmp/
+*.tmp
+.cache/

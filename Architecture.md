@@ -1178,6 +1178,13 @@ Steps, asked one at a time (`tori_profile_missing` returns what is left):
    stripped), a skill level and extra interests (`tori_save_about`);
 6. **privacy** (only if they gave a link or photo): "Anyone I match with" / "Only after both yes".
 
+**Voice notes, anywhere.** Every voice note is downloaded and transcribed. At the "about you" step the
+transcript is the answer. Anywhere else, **Relay voice as text** posts it back to this workflow's own
+WhatsApp Trigger as a text message from the same person. The body is signed with `BOT_META_APP_SECRET`,
+because the trigger checks Meta's `x-hub-signature-256`, and the message ID is the voice note's plus
+`.voice`. A spoken request, profile answer, "any match?" or `JOIN` code is therefore handled exactly like
+a typed one. `BOT_RELAY_URL` overrides the target; the tests post to their own webhook.
+
 Several answers in one message are all taken. A profile complete under older rules is asked only the new
 steps (the context computes the status from the steps left, not from the stored flag). When the profile is
 complete, the parked request opens (or the bot asks for its missing details), and a pending board join
@@ -1327,6 +1334,7 @@ the second reply may not know about the first.
 | `BOARD_PORT` | the board's local port (3001) |
 | `PARTNER_MATCH_TEMPLATE` | an approved template for offers outside the 24-hour window; empty = save them |
 | `TRANSCRIBE_BASE_URL`, `TRANSCRIBE_MODEL` | Whisper endpoint and model; empty = Groq `whisper-large-v3-turbo` with `LLM_API_KEY` |
+| `BOT_RELAY_URL` | where transcribed voice notes are posted back as text; empty = this n8n's WhatsApp Trigger |
 
 ### 20.12 Testing
 

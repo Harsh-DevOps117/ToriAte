@@ -190,6 +190,9 @@ Design: [plan/tori-matching-architecture.md](plan/tori-matching-architecture.md)
   the chat LLM; `TRANSCRIBE_BASE_URL` / `TRANSCRIBE_MODEL` override it). An LLM turns the text into a short
   summary for match cards (contact details are stripped), a skill level and extra interests (`tori_save_about`,
   [010_about.sql](db/migrations/010_about.sql)). The bot shows the summary back to them: "Here's what I'll share".
+- **Voice notes work like typing, everywhere.** Outside the "about you" step, the transcript is relayed back to
+  workflow 06 as a text message from the same person (signed with the app secret, like Meta does), so a
+  spoken request, profile answer, "any match?" or `JOIN` code is handled exactly like a typed one.
   The link question says Instagram profiles must be public.
 - **Matching** (`match_partner_request`, 009):
   - same day, same sport (or a group in `compatible_activities`);

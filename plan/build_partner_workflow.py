@@ -1075,7 +1075,9 @@ add('Save photo', *PG, sql(
 link('Photo as base64', 'Save photo')
 link('Save photo', 'Build profile reply')
 
-# ── 13. "About you": typed (Partner route "about") or a voice note (transcribed by Whisper) ─────
+# ── 13. Voice notes and "about you" ───────────────────────────────────────────────────────────
+# Every voice note is transcribed by Whisper. At the "about you" step it is the answer; anywhere else it is
+# relayed back to this workflow as text (below). "About you" can also be typed (Partner route "about").
 # The LLM reads it into { summary, skill_level, interests }; public.tori_save_about (010) keeps the text,
 # a contact-free summary for match cards and the level matching uses when a request has none.
 # Whisper: Groq's OpenAI-compatible /audio/transcriptions (same key as the chat LLM); TRANSCRIBE_BASE_URL /
@@ -1084,15 +1086,7 @@ YAB = Y0 + 3500
 add('Expecting about?', *PG, sql(
     "SELECT (public.tori_profile_context($1) ->> 'next') = 'about' AS expecting;", '[ $json.wa_id ]'),
     [col(2), YAB - 300], credentials=CRED_POSTGRES)
-add('About step?', *IF, bool_if('$json.expecting === true'), [col(3), YAB - 300])
-link('Expecting about?', 'About step?')
-link('About step?', 'Get voice URL', 0)
-link('About step?', 'Voice not now', 1)
-add('Voice not now', *CODE, code(r"""
-return [{ json: { to: $('Read profile input').first().json.wa_id,
-  text: "🎙️ I can only listen to voice notes when you're telling me about yourself. Please type your message 🙏" } }];
-"""), [col(4), YAB - 150])
-link('Voice not now', 'Send partner text')
+link('Expecting about?', 'Get voice URL')
 add('Get voice URL', *HTTP, {
     'method': 'GET', 'url': "={{ " + GRAPH + " + '/' + $('Read profile input').first().json.media_id }}",
     'sendHeaders': True, 'headerParameters': AUTH, 'options': {'timeout': 15000},
@@ -1125,14 +1119,54 @@ add('Transcribe voice', *HTTP, {
     # Groq answers 429 / 5xx now and then: an error status throws, so n8n retries
     retryOnFail=True, maxTries=3, waitBetweenTries=3000)
 link('Name voice file', 'Transcribe voice')
-add('Voice to about', *CODE, code(r"""
-// after 3 failed tries $json holds the error: about_text stays empty → "I couldn't make that out"
+add('Voice transcript', *CODE, code(r"""
+// after 3 failed tries $json holds the error: the text stays empty → "I couldn't make that out"
 const ok = $json.statusCode === 200;
-return [{ json: { to: $('Read profile input').first().json.wa_id,
-                  about_text: ok ? String(($json.body && $json.body.text) || '').trim() : '', source: 'voice' } }];
+const text = ok ? String(($json.body && $json.body.text) || '').trim() : '';
+return [{ json: { to: $('Read profile input').first().json.wa_id, text, about_text: text, source: 'voice',
+                  about: $('Expecting about?').first().json.expecting === true } }];
 """), [col(8), YAB - 450])
-link('Transcribe voice', 'Voice to about')
-link('Voice to about', 'About LLM request')
+link('Transcribe voice', 'Voice transcript')
+add('About step?', *IF, bool_if('$json.about === true'), [col(9), YAB - 450])
+link('Voice transcript', 'About step?')
+link('About step?', 'About LLM request', 0)
+link('About step?', 'Voice heard?', 1)
+
+# Any other voice note: handed back to this workflow as a text message from the same person, so it works
+# exactly like typing (requests, profile answers, "any match?", JOIN codes …). The WhatsApp Trigger checks
+# Meta's signature, so the relay signs the body with the app secret like Meta does (crypto is allowed:
+# NODE_FUNCTION_ALLOW_BUILTIN). Its message ID is the voice note's + ".voice" (logged and deduped as usual).
+# BOT_RELAY_URL overrides the target (tests post to their own webhook).
+add('Voice heard?', *IF, bool_if('!!$json.text'), [col(10), YAB - 600])
+link('Voice heard?', 'Relay voice as text', 0)
+link('Voice heard?', 'Voice not understood', 1)
+add('Voice not understood', *CODE, code(r"""
+return [{ json: { to: $json.to, text: "🎙️ Sorry, I couldn't make out that voice note. Please try again or type it 🙏" } }];
+"""), [col(11), YAB - 450])
+link('Voice not understood', 'Send partner text')
+add('Relay voice as text', *CODE, code(r"""
+const crypto = require('crypto');
+const trig = $('WhatsApp Trigger').first().json;
+const msg = trig.messages[0];
+const value = {
+  messaging_product: 'whatsapp', metadata: trig.metadata || {}, contacts: trig.contacts || [],
+  messages: [{ from: msg.from, id: msg.id + '.voice', timestamp: msg.timestamp || String(Math.floor(Date.now() / 1000)),
+               type: 'text', text: { body: $json.text } }],
+};
+const raw = JSON.stringify({ object: 'whatsapp_business_account',
+                             entry: [{ id: 'voice-relay', changes: [{ field: 'messages', value }] }] });
+const signature = 'sha256=' + crypto.createHmac('sha256', $env.BOT_META_APP_SECRET || '').update(raw).digest('hex');
+return [{ json: { raw, signature } }];
+"""), [col(11), YAB - 750])
+add('Send to bot as text', *HTTP, {
+    'method': 'POST',
+    'url': "={{ $env.BOT_RELAY_URL || 'http://localhost:5678/webhook/" + trig['webhookId'] + "/webhook' }}",
+    'sendHeaders': True,
+    'headerParameters': {'parameters': [{'name': 'x-hub-signature-256', 'value': '={{ $json.signature }}'}]},
+    'sendBody': True, 'contentType': 'raw', 'rawContentType': 'application/json', 'body': '={{ $json.raw }}',
+    'options': {'timeout': 15000},
+}, [col(12), YAB - 750], onError='continueRegularOutput')
+link('Relay voice as text', 'Send to bot as text')
 
 add('About LLM request', *CODE, code(r"""
 const SYSTEM = `You read what a person wrote or said about themselves for Tori, an app in India that finds people to play sports and do activities with, and return JSON.
