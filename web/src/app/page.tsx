@@ -27,6 +27,7 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
           <Link href="/" aria-label="Tori partner board"><Logo /></Link>
           <div className="flex items-center gap-3">
             <span className="hidden sm:inline"><LiveRefresh renderedAt={new Date().toISOString()} /></span>
+            <Link href="/wallet" className={btn('secondary', 'sm')}>Wallet</Link>
             {post && (
               <a href={post} target="_blank" rel="noopener noreferrer" className={btn('primary', 'sm')}>
                 <MessageCircle className="size-4" aria-hidden />Post a request

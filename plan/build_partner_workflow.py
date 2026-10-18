@@ -1392,6 +1392,165 @@ add('Spots reopened?', *IF, bool_if('!!$json.request_id'), [col(7), YJ + 750])
 link('Build spots reply', 'Spots reopened?')
 link('Spots reopened?', 'Find partner match', 0)
 
+# ── 15. Tori Wallet (db/migrations/012_wallet*.sql, web/ /wallet) ───────────────────────────────
+# "add credits" / "wallet" / "balance" → a one-time link to the wallet page (Razorpay top-up there).
+# One-tap checkout: a booking system POSTs /webhook/wallet/charge { wa_id, amount_paise, description, ref,
+# source } with x-tori-key = WALLET_API_KEY → the person gets [Pay ₹X] [Cancel] (wp_yes_<id> / wp_no_<id>) →
+# one tap deducts from the wallet, no payment gateway. /webhook/wallet/notify { wa_id, text } lets the web
+# app send "✅ ₹500 added". "test booking 300" makes a demo charge when WALLET_DEMO=1.
+YW = Y0 + 4400
+WALLET_JS = r'''const BOARD = ($env.BOARD_PUBLIC_URL || '').replace(/\/+$/, '');
+const rs = (p) => '₹' + (Number(p || 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+const link = (l) => (BOARD && l && l.token ? `${BOARD}/wallet/login?t=${l.token}` : null);
+const textBody = (t) => ({ type: 'text', text: { preview_url: false, body: t } });
+// the payment request: one tap to pay, or a link to add credits first
+const chargeBody = (c, l) => {
+  const url = link(l);
+  const head = `💳 *${c.description}*\nAmount: *${rs(c.amount_paise)}*`;
+  if (!['pending'].includes(c.status)) return textBody(`${head}\n\nThis payment is ${c.status} already.`);
+  const text = c.enough
+    ? `${head}\nFrom your Tori Wallet: ${rs(c.balance_paise)} → ${rs(c.balance_paise - c.amount_paise)} after.\n\nOne tap and it's paid 👇`
+    : `${head}\nYour Tori Wallet has ${rs(c.balance_paise)}: add ${rs(c.amount_paise - c.balance_paise)} or more`
+      + (url ? ` here 👉 ${url}` : '') + `\n\nThen tap *Pay* 👇`;
+  return { type: 'interactive', interactive: { type: 'button', body: { text },
+    action: { buttons: [ { type: 'reply', reply: { id: 'wp_yes_' + c.charge_id, title: `Pay ${rs(c.amount_paise)}`.slice(0, 20) } },
+                         { type: 'reply', reply: { id: 'wp_no_' + c.charge_id, title: 'Cancel' } } ] } } };
+};
+'''
+
+add('Wallet command?', *IF, bool_if(
+    "/^\\s*(add\\s+(credits?|money|balance)|top[\\s-]?up|recharge|(my\\s+|tori\\s+)?wallet|balance|credits?)\\s*[.!?]*\\s*$/i"
+    ".test($json.messages?.[0]?.text?.body || '') || "
+    "(($json.messages?.[0]?.interactive?.button_reply?.id) || '').startsWith('wp_') || "
+    "($env.WALLET_DEMO === '1' && /^\\s*test\\s+booking\\s+\\d{1,5}\\s*$/i.test($json.messages?.[0]?.text?.body || ''))"),
+    [trig['position'][0] + 200, trig['position'][1] + 1560])
+unlink('Join message?', 'Profile input?', 1)
+link('Join message?', 'Wallet command?', 1)
+link('Wallet command?', 'Read wallet input', 0)
+link('Wallet command?', 'Profile input?', 1)
+add('Read wallet input', *CODE, code(r"""
+const msg = $json.messages[0];
+const id = msg.interactive?.button_reply?.id || '';
+const m = id.match(/^wp_(yes|no)_([0-9a-f-]{36})$/);
+const demo = (msg.text?.body || '').match(/^\s*test\s+booking\s+(\d{1,5})\s*$/i);
+return { json: { wa: msg.from, name: ($json.contacts?.[0]?.profile?.name || '').trim(),
+                 action: m ? (m[1] === 'yes' ? 'pay' : 'cancel') : demo ? 'demo' : 'link',
+                 charge_id: m ? m[2] : '', demo_paise: demo ? Number(demo[1]) * 100 : 0, msg_id: msg.id || '' } };
+""", each=True), [col(0), YW])
+WALLET_ROUTES = ['link', 'pay', 'cancel', 'demo']
+add('Wallet route', 'n8n-nodes-base.switch', 3.2, {
+    'mode': 'expression', 'numberOutputs': len(WALLET_ROUTES),
+    'output': '={{ ' + json.dumps(WALLET_ROUTES) + '.indexOf($json.action) }}',
+}, [col(1), YW])
+link('Read wallet input', 'Wallet route')
+link('Wallet route', 'Wallet link', 0)
+link('Wallet route', 'Pay from wallet', 1)
+link('Wallet route', 'Cancel wallet charge', 2)
+link('Wallet route', 'Demo charge', 3)
+
+add('Wallet link', *PG, sql("SELECT public.wallet_issue_link($1, nullif($2, '')) AS l, $1 AS \"to\";",
+                            "[ $json.wa, $json.name || '' ]"), [col(2), YW - 300], credentials=CRED_POSTGRES)
+add('Wallet link reply', *CODE, code(r"""
+""" + WALLET_JS + r"""
+const url = link($json.l);
+const t = `💳 *Tori Wallet*: ${rs($json.l.balance_paise)} (${Number($json.l.balance_paise) / 100} credits)\n\n`
+  + (url ? `Add credits here 👉 ${url}\n_(this link works once, for 15 minutes)_` : "The wallet page isn't online right now. Please try again later 🙏")
+  + `\n\nWhen you book with Tori, just tap *Pay*: it comes straight from your wallet, no payment page.`;
+return [{ json: { to: $json.to, body: textBody(t) } }];
+"""), [col(3), YW - 300])
+link('Wallet link', 'Wallet link reply')
+link('Wallet link reply', 'Send prepared message')
+
+add('Pay from wallet', *PG, sql(
+    "SELECT public.wallet_pay_charge(nullif($1, '')::uuid, $2) AS r, public.wallet_issue_link($2) AS l, $2 AS \"to\";",
+    '[ $json.charge_id, $json.wa ]'), [col(2), YW - 100], credentials=CRED_POSTGRES)
+add('Wallet pay reply', *CODE, code(r"""
+""" + WALLET_JS + r"""
+const r = $json.r || {};
+const url = link($json.l);
+const t = {
+  paid: `✅ Paid ${rs(r.amount_paise)} from your Tori Wallet for *${r.description}*.\nBalance: ${rs(r.balance_paise)}`,
+  already_paid: `Already paid ✅ (${r.description}). Balance: ${rs(r.balance_paise)}`,
+  insufficient: `Your wallet has ${rs(r.balance_paise)}: ${rs(r.short_paise)} short for *${r.description}*.`
+    + (url ? `\n\nAdd credits 👉 ${url}\nThen tap *Pay* again on the message above.` : ''),
+  expired: `This payment request has expired. Please book again 🙏`,
+  cancelled: `This payment was cancelled.`,
+  refunded: `This payment was refunded to your wallet.`,
+}[r.state] || "This payment isn't available any more.";
+return [{ json: { to: $json.to, body: textBody(t) } }];
+"""), [col(3), YW - 100])
+link('Pay from wallet', 'Wallet pay reply')
+link('Wallet pay reply', 'Send prepared message')
+
+add('Cancel wallet charge', *PG, sql("SELECT public.wallet_cancel_charge(nullif($1, '')::uuid, $2) AS r, $2 AS \"to\";",
+                                     '[ $json.charge_id, $json.wa ]'), [col(2), YW + 100], credentials=CRED_POSTGRES)
+add('Wallet cancel reply', *CODE, code(r"""
+const r = $json.r || {};
+return [{ json: { to: $json.to, body: { type: 'text', text: { preview_url: false,
+  body: r.state === 'cancelled' ? `Okay, cancelled: nothing was taken from your wallet 👍` : `There's nothing to cancel.` } } } }];
+"""), [col(3), YW + 100])
+link('Cancel wallet charge', 'Wallet cancel reply')
+link('Wallet cancel reply', 'Send prepared message')
+
+# "test booking 300" (WALLET_DEMO=1): a demo payment request, to try one-tap checkout without a venue system
+add('Demo charge', *PG, sql(
+    "SELECT public.wallet_create_charge($1, $2::bigint, 'Demo booking · Smash Arena, Court 1', 'demo-' || $3, 'demo') AS c, "
+    "public.wallet_issue_link($1) AS l, $1 AS \"to\";",
+    "[ $json.wa, $json.demo_paise, $json.msg_id ]"), [col(2), YW + 300], credentials=CRED_POSTGRES)
+add('Demo charge message', *CODE, code(r"""
+""" + WALLET_JS + r"""
+return [{ json: { to: $json.to, body: chargeBody($json.c, $json.l) } }];
+"""), [col(3), YW + 300])
+link('Demo charge', 'Demo charge message')
+link('Demo charge message', 'Send prepared message')
+
+# POST /webhook/wallet/charge — for booking systems (needs x-tori-key = WALLET_API_KEY)
+add('Wallet charge (webhook)', 'n8n-nodes-base.webhook', 2, {
+    'httpMethod': 'POST', 'path': 'wallet/charge', 'responseMode': 'responseNode', 'options': {},
+}, [col(0), YW + 600], webhookId=str(uuid.uuid5(uuid.NAMESPACE_URL, 'tori/06/wallet-charge')))
+add('Charge key ok?', *IF, bool_if("!!$env.WALLET_API_KEY && $json.headers['x-tori-key'] === $env.WALLET_API_KEY"), [col(1), YW + 600])
+link('Wallet charge (webhook)', 'Charge key ok?')
+link('Charge key ok?', 'Create wallet charge', 0)
+link('Charge key ok?', 'Charge refused', 1)
+add('Charge refused', 'n8n-nodes-base.respondToWebhook', 1.1, {
+    'respondWith': 'json', 'responseBody': '={{ JSON.stringify({ error: "unauthorized" }) }}', 'options': {'responseCode': 401}},
+    [col(2), YW + 800])
+add('Create wallet charge', *PG, sql(
+    "SELECT public.wallet_create_charge($1, $2::bigint, $3, nullif($4, ''), $5) AS c, public.wallet_issue_link($1) AS l, $1 AS \"to\";",
+    "[ String($json.body?.wa_id || '').replace(/\\D/g, ''), Number($json.body?.amount_paise || 0), $json.body?.description || '', "
+    "String($json.body?.ref || ''), String($json.body?.source || 'api').slice(0, 40) ]"),
+    [col(2), YW + 600], credentials=CRED_POSTGRES)
+add('Charge request message', *CODE, code(r"""
+""" + WALLET_JS + r"""
+if (!$json.c || $json.c.state === 'bad_amount') return [{ json: { to: '', skip: true, response: { error: 'bad_amount' } } }];
+return [{ json: { to: $json.to, body: chargeBody($json.c, $json.l),
+  response: { charge_id: $json.c.charge_id, state: $json.c.state, status: $json.c.status, enough: $json.c.enough,
+              balance_paise: $json.c.balance_paise } } }];
+"""), [col(3), YW + 600])
+link('Create wallet charge', 'Charge request message')
+add('Send charge request', *HTTP, whatsapp_send("{ messaging_product: 'whatsapp', to: $json.to, ...$json.body }"),
+    [col(4), YW + 600], **SEND)
+link('Charge request message', 'Send charge request')
+add('Charge answer', 'n8n-nodes-base.respondToWebhook', 1.1, {
+    'respondWith': 'json',
+    'responseBody': "={{ JSON.stringify({ ...$('Charge request message').first().json.response, "
+                    "sent: $json.statusCode ? $json.statusCode === 200 : undefined }) }}",
+    'options': {}}, [col(5), YW + 600])
+link('Send charge request', 'Charge answer')
+
+# POST /webhook/wallet/notify { wa_id, text } — the web app's "✅ ₹500 added" (x-tori-key)
+add('Wallet notify (webhook)', 'n8n-nodes-base.webhook', 2, {
+    'httpMethod': 'POST', 'path': 'wallet/notify', 'responseMode': 'onReceived', 'options': {},
+}, [col(0), YW + 1000], webhookId=str(uuid.uuid5(uuid.NAMESPACE_URL, 'tori/06/wallet-notify')))
+add('Notify key ok?', *IF, bool_if("!!$env.WALLET_API_KEY && $json.headers['x-tori-key'] === $env.WALLET_API_KEY && "
+                                   "/^\\d{8,15}$/.test(String($json.body?.wa_id || ''))"), [col(1), YW + 1000])
+link('Wallet notify (webhook)', 'Notify key ok?')
+add('Notify message', *CODE, code(r"""
+return [{ json: { to: String($json.body.wa_id), body: { type: 'text', text: { preview_url: false, body: String($json.body.text || '').slice(0, 1000) } } } }];
+"""), [col(2), YW + 1000])
+link('Notify key ok?', 'Notify message', 0)
+link('Notify message', 'Send prepared message')
+
 # ── 11. People outside WhatsApp's 24-hour window (db/migrations/008_held_messages*.sql) ────────
 # Offers and match updates for someone who hasn't written in 24 h are kept in public.tori_held_messages
 # ("Hold offer", "Hold update") and sent the next time they write, before the normal reply (this node sits

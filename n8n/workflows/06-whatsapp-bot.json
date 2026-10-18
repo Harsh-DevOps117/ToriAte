@@ -9598,6 +9598,434 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "89982cc8-9727-5914-88f3-8c1c32b3f55a",
+              "leftValue": "={{ /^\\s*(add\\s+(credits?|money|balance)|top[\\s-]?up|recharge|(my\\s+|tori\\s+)?wallet|balance|credits?)\\s*[.!?]*\\s*$/i.test($json.messages?.[0]?.text?.body || '') || (($json.messages?.[0]?.interactive?.button_reply?.id) || '').startsWith('wp_') || ($env.WALLET_DEMO === '1' && /^\\s*test\\s+booking\\s+\\d{1,5}\\s*$/i.test($json.messages?.[0]?.text?.body || '')) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        9512
+      ],
+      "id": "215a1ce9-5e4a-583d-b0bb-31d188200cc7",
+      "name": "Wallet command?"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const msg = $json.messages[0];\nconst id = msg.interactive?.button_reply?.id || '';\nconst m = id.match(/^wp_(yes|no)_([0-9a-f-]{36})$/);\nconst demo = (msg.text?.body || '').match(/^\\s*test\\s+booking\\s+(\\d{1,5})\\s*$/i);\nreturn { json: { wa: msg.from, name: ($json.contacts?.[0]?.profile?.name || '').trim(),\n                 action: m ? (m[1] === 'yes' ? 'pay' : 'cancel') : demo ? 'demo' : 'link',\n                 charge_id: m ? m[2] : '', demo_paise: demo ? Number(demo[1]) * 100 : 0, msg_id: msg.id || '' } };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1504,
+        19384
+      ],
+      "id": "caa67f75-e07b-5b65-bfaf-bf9a030c40bf",
+      "name": "Read wallet input"
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 4,
+        "output": "={{ [\"link\", \"pay\", \"cancel\", \"demo\"].indexOf($json.action) }}"
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -1244,
+        19384
+      ],
+      "id": "208e2766-d17e-5079-8b88-6025621e2025",
+      "name": "Wallet route"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.wallet_issue_link($1, nullif($2, '')) AS l, $1 AS \"to\";",
+        "options": {
+          "queryReplacement": "={{ [ $json.wa, $json.name || '' ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -984,
+        19084
+      ],
+      "id": "88923e92-9122-587e-87f3-6d821836cc64",
+      "name": "Wallet link",
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const BOARD = ($env.BOARD_PUBLIC_URL || '').replace(/\\/+$/, '');\nconst rs = (p) => '₹' + (Number(p || 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });\nconst link = (l) => (BOARD && l && l.token ? `${BOARD}/wallet/login?t=${l.token}` : null);\nconst textBody = (t) => ({ type: 'text', text: { preview_url: false, body: t } });\n// the payment request: one tap to pay, or a link to add credits first\nconst chargeBody = (c, l) => {\n  const url = link(l);\n  const head = `💳 *${c.description}*\\nAmount: *${rs(c.amount_paise)}*`;\n  if (!['pending'].includes(c.status)) return textBody(`${head}\\n\\nThis payment is ${c.status} already.`);\n  const text = c.enough\n    ? `${head}\\nFrom your Tori Wallet: ${rs(c.balance_paise)} → ${rs(c.balance_paise - c.amount_paise)} after.\\n\\nOne tap and it's paid 👇`\n    : `${head}\\nYour Tori Wallet has ${rs(c.balance_paise)}: add ${rs(c.amount_paise - c.balance_paise)} or more`\n      + (url ? ` here 👉 ${url}` : '') + `\\n\\nThen tap *Pay* 👇`;\n  return { type: 'interactive', interactive: { type: 'button', body: { text },\n    action: { buttons: [ { type: 'reply', reply: { id: 'wp_yes_' + c.charge_id, title: `Pay ${rs(c.amount_paise)}`.slice(0, 20) } },\n                         { type: 'reply', reply: { id: 'wp_no_' + c.charge_id, title: 'Cancel' } } ] } } };\n};\n\nconst url = link($json.l);\nconst t = `💳 *Tori Wallet*: ${rs($json.l.balance_paise)} (${Number($json.l.balance_paise) / 100} credits)\\n\\n`\n  + (url ? `Add credits here 👉 ${url}\\n_(this link works once, for 15 minutes)_` : \"The wallet page isn't online right now. Please try again later 🙏\")\n  + `\\n\\nWhen you book with Tori, just tap *Pay*: it comes straight from your wallet, no payment page.`;\nreturn [{ json: { to: $json.to, body: textBody(t) } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -724,
+        19084
+      ],
+      "id": "3172851e-74e0-57c5-8c47-dac2d88e7eac",
+      "name": "Wallet link reply"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.wallet_pay_charge(nullif($1, '')::uuid, $2) AS r, public.wallet_issue_link($2) AS l, $2 AS \"to\";",
+        "options": {
+          "queryReplacement": "={{ [ $json.charge_id, $json.wa ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -984,
+        19284
+      ],
+      "id": "d88ca8d0-fd96-511e-9542-ef5f5c386dd9",
+      "name": "Pay from wallet",
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const BOARD = ($env.BOARD_PUBLIC_URL || '').replace(/\\/+$/, '');\nconst rs = (p) => '₹' + (Number(p || 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });\nconst link = (l) => (BOARD && l && l.token ? `${BOARD}/wallet/login?t=${l.token}` : null);\nconst textBody = (t) => ({ type: 'text', text: { preview_url: false, body: t } });\n// the payment request: one tap to pay, or a link to add credits first\nconst chargeBody = (c, l) => {\n  const url = link(l);\n  const head = `💳 *${c.description}*\\nAmount: *${rs(c.amount_paise)}*`;\n  if (!['pending'].includes(c.status)) return textBody(`${head}\\n\\nThis payment is ${c.status} already.`);\n  const text = c.enough\n    ? `${head}\\nFrom your Tori Wallet: ${rs(c.balance_paise)} → ${rs(c.balance_paise - c.amount_paise)} after.\\n\\nOne tap and it's paid 👇`\n    : `${head}\\nYour Tori Wallet has ${rs(c.balance_paise)}: add ${rs(c.amount_paise - c.balance_paise)} or more`\n      + (url ? ` here 👉 ${url}` : '') + `\\n\\nThen tap *Pay* 👇`;\n  return { type: 'interactive', interactive: { type: 'button', body: { text },\n    action: { buttons: [ { type: 'reply', reply: { id: 'wp_yes_' + c.charge_id, title: `Pay ${rs(c.amount_paise)}`.slice(0, 20) } },\n                         { type: 'reply', reply: { id: 'wp_no_' + c.charge_id, title: 'Cancel' } } ] } } };\n};\n\nconst r = $json.r || {};\nconst url = link($json.l);\nconst t = {\n  paid: `✅ Paid ${rs(r.amount_paise)} from your Tori Wallet for *${r.description}*.\\nBalance: ${rs(r.balance_paise)}`,\n  already_paid: `Already paid ✅ (${r.description}). Balance: ${rs(r.balance_paise)}`,\n  insufficient: `Your wallet has ${rs(r.balance_paise)}: ${rs(r.short_paise)} short for *${r.description}*.`\n    + (url ? `\\n\\nAdd credits 👉 ${url}\\nThen tap *Pay* again on the message above.` : ''),\n  expired: `This payment request has expired. Please book again 🙏`,\n  cancelled: `This payment was cancelled.`,\n  refunded: `This payment was refunded to your wallet.`,\n}[r.state] || \"This payment isn't available any more.\";\nreturn [{ json: { to: $json.to, body: textBody(t) } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -724,
+        19284
+      ],
+      "id": "e03abb1d-aee0-5023-a379-9855d6c9b114",
+      "name": "Wallet pay reply"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.wallet_cancel_charge(nullif($1, '')::uuid, $2) AS r, $2 AS \"to\";",
+        "options": {
+          "queryReplacement": "={{ [ $json.charge_id, $json.wa ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -984,
+        19484
+      ],
+      "id": "3abfb2af-0716-566d-b2b7-eff5d7c8d8f0",
+      "name": "Cancel wallet charge",
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $json.r || {};\nreturn [{ json: { to: $json.to, body: { type: 'text', text: { preview_url: false,\n  body: r.state === 'cancelled' ? `Okay, cancelled: nothing was taken from your wallet 👍` : `There's nothing to cancel.` } } } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -724,
+        19484
+      ],
+      "id": "df2199ed-9ac3-53f7-8e5b-c4ab71d467bc",
+      "name": "Wallet cancel reply"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.wallet_create_charge($1, $2::bigint, 'Demo booking · Smash Arena, Court 1', 'demo-' || $3, 'demo') AS c, public.wallet_issue_link($1) AS l, $1 AS \"to\";",
+        "options": {
+          "queryReplacement": "={{ [ $json.wa, $json.demo_paise, $json.msg_id ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -984,
+        19684
+      ],
+      "id": "99d0ba20-b02d-501c-aad3-f83302897648",
+      "name": "Demo charge",
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const BOARD = ($env.BOARD_PUBLIC_URL || '').replace(/\\/+$/, '');\nconst rs = (p) => '₹' + (Number(p || 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });\nconst link = (l) => (BOARD && l && l.token ? `${BOARD}/wallet/login?t=${l.token}` : null);\nconst textBody = (t) => ({ type: 'text', text: { preview_url: false, body: t } });\n// the payment request: one tap to pay, or a link to add credits first\nconst chargeBody = (c, l) => {\n  const url = link(l);\n  const head = `💳 *${c.description}*\\nAmount: *${rs(c.amount_paise)}*`;\n  if (!['pending'].includes(c.status)) return textBody(`${head}\\n\\nThis payment is ${c.status} already.`);\n  const text = c.enough\n    ? `${head}\\nFrom your Tori Wallet: ${rs(c.balance_paise)} → ${rs(c.balance_paise - c.amount_paise)} after.\\n\\nOne tap and it's paid 👇`\n    : `${head}\\nYour Tori Wallet has ${rs(c.balance_paise)}: add ${rs(c.amount_paise - c.balance_paise)} or more`\n      + (url ? ` here 👉 ${url}` : '') + `\\n\\nThen tap *Pay* 👇`;\n  return { type: 'interactive', interactive: { type: 'button', body: { text },\n    action: { buttons: [ { type: 'reply', reply: { id: 'wp_yes_' + c.charge_id, title: `Pay ${rs(c.amount_paise)}`.slice(0, 20) } },\n                         { type: 'reply', reply: { id: 'wp_no_' + c.charge_id, title: 'Cancel' } } ] } } };\n};\n\nreturn [{ json: { to: $json.to, body: chargeBody($json.c, $json.l) } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -724,
+        19684
+      ],
+      "id": "1051056d-411b-5e9a-bb61-8b21dbb34118",
+      "name": "Demo charge message"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wallet/charge",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1504,
+        19984
+      ],
+      "id": "29d06267-a76b-516d-b81c-2b54fdcdeeb8",
+      "name": "Wallet charge (webhook)",
+      "webhookId": "2b8a308c-bd2b-59d8-88bc-82801a52f1b8"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1452f049-5aef-5da5-817b-d8c9656b4145",
+              "leftValue": "={{ !!$env.WALLET_API_KEY && $json.headers['x-tori-key'] === $env.WALLET_API_KEY }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1244,
+        19984
+      ],
+      "id": "f5ba708d-ef40-5b61-ab11-7b41bc9855ea",
+      "name": "Charge key ok?"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ error: \"unauthorized\" }) }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -984,
+        20184
+      ],
+      "id": "cb39d17d-e473-59eb-ba5d-e3955c155df3",
+      "name": "Charge refused"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.wallet_create_charge($1, $2::bigint, $3, nullif($4, ''), $5) AS c, public.wallet_issue_link($1) AS l, $1 AS \"to\";",
+        "options": {
+          "queryReplacement": "={{ [ String($json.body?.wa_id || '').replace(/\\D/g, ''), Number($json.body?.amount_paise || 0), $json.body?.description || '', String($json.body?.ref || ''), String($json.body?.source || 'api').slice(0, 40) ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -984,
+        19984
+      ],
+      "id": "6eff75eb-7211-5bd8-a594-dcb5d61445ce",
+      "name": "Create wallet charge",
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const BOARD = ($env.BOARD_PUBLIC_URL || '').replace(/\\/+$/, '');\nconst rs = (p) => '₹' + (Number(p || 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });\nconst link = (l) => (BOARD && l && l.token ? `${BOARD}/wallet/login?t=${l.token}` : null);\nconst textBody = (t) => ({ type: 'text', text: { preview_url: false, body: t } });\n// the payment request: one tap to pay, or a link to add credits first\nconst chargeBody = (c, l) => {\n  const url = link(l);\n  const head = `💳 *${c.description}*\\nAmount: *${rs(c.amount_paise)}*`;\n  if (!['pending'].includes(c.status)) return textBody(`${head}\\n\\nThis payment is ${c.status} already.`);\n  const text = c.enough\n    ? `${head}\\nFrom your Tori Wallet: ${rs(c.balance_paise)} → ${rs(c.balance_paise - c.amount_paise)} after.\\n\\nOne tap and it's paid 👇`\n    : `${head}\\nYour Tori Wallet has ${rs(c.balance_paise)}: add ${rs(c.amount_paise - c.balance_paise)} or more`\n      + (url ? ` here 👉 ${url}` : '') + `\\n\\nThen tap *Pay* 👇`;\n  return { type: 'interactive', interactive: { type: 'button', body: { text },\n    action: { buttons: [ { type: 'reply', reply: { id: 'wp_yes_' + c.charge_id, title: `Pay ${rs(c.amount_paise)}`.slice(0, 20) } },\n                         { type: 'reply', reply: { id: 'wp_no_' + c.charge_id, title: 'Cancel' } } ] } } };\n};\n\nif (!$json.c || $json.c.state === 'bad_amount') return [{ json: { to: '', skip: true, response: { error: 'bad_amount' } } }];\nreturn [{ json: { to: $json.to, body: chargeBody($json.c, $json.l),\n  response: { charge_id: $json.c.charge_id, state: $json.c.state, status: $json.c.status, enough: $json.c.enough,\n              balance_paise: $json.c.balance_paise } } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -724,
+        19984
+      ],
+      "id": "3c10e56a-595a-5d13-8a30-c65ba83df128",
+      "name": "Charge request message"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BOT_WHATSAPP_GRAPH_URL || 'https://graph.facebook.com/v19.0' }}/{{ $env.BOT_WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', to: $json.to, ...$json.body }) }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -464,
+        19984
+      ],
+      "id": "80debf50-e168-5f62-b4f4-03a8e1b4cd52",
+      "name": "Send charge request",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "toriWhatsAppHdr1",
+          "name": "WhatsApp Cloud API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ...$('Charge request message').first().json.response, sent: $json.statusCode ? $json.statusCode === 200 : undefined }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -204,
+        19984
+      ],
+      "id": "66035737-71b4-5024-b2a8-8200d0fa2376",
+      "name": "Charge answer"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wallet/notify",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1504,
+        20384
+      ],
+      "id": "d5a948f8-70c9-5d6d-a1e1-98a2560de281",
+      "name": "Wallet notify (webhook)",
+      "webhookId": "200e4c3f-c28d-5b65-afbf-4b9088f09858"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1e8eca96-59b0-5538-b241-e071c2d75374",
+              "leftValue": "={{ !!$env.WALLET_API_KEY && $json.headers['x-tori-key'] === $env.WALLET_API_KEY && /^\\d{8,15}$/.test(String($json.body?.wa_id || '')) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1244,
+        20384
+      ],
+      "id": "32b28da3-0a49-55c6-be30-0358145b97d1",
+      "name": "Notify key ok?"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { to: String($json.body.wa_id), body: { type: 'text', text: { preview_url: false, body: String($json.body.text || '').slice(0, 1000) } } } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -984,
+        20384
+      ],
+      "id": "6274b36c-b625-5d68-8b25-5aa2da30f869",
+      "name": "Notify message"
+    },
+    {
+      "parameters": {
         "content": "## Held messages\nSQL: db/migrations/008_held_messages*.sql\n\n- WhatsApp only allows replies within 24 h of the user's last message (else a template)\n- Offers / updates for people outside it are kept (**Hold offer**, **Hold update**)\n- **Take held messages** sends them on the person's next message; \"any match?\" re-sends open offers\n- Set PARTNER_MATCH_TEMPLATE to an approved template name to send offers right away instead",
         "height": 260,
         "width": 620,
@@ -9609,7 +10037,7 @@
         -1504,
         17384
       ],
-      "id": "89982cc8-9727-5914-88f3-8c1c32b3f55a",
+      "id": "f665141a-55d4-5f96-b1a3-5cbd1516625a",
       "name": "Held messages (about)"
     },
     {
@@ -9626,7 +10054,7 @@
         600,
         7432
       ],
-      "id": "215a1ce9-5e4a-583d-b0bb-31d188200cc7",
+      "id": "2eaa108e-1439-536d-aba8-231caba72be4",
       "name": "Take held messages",
       "credentials": {
         "postgres": {
@@ -9646,7 +10074,7 @@
         840,
         7432
       ],
-      "id": "caa67f75-e07b-5b65-bfaf-bf9a030c40bf",
+      "id": "cd4d1325-05c4-5abe-a3d0-5a0c078943e4",
       "name": "Held to send"
     },
     {
@@ -9674,7 +10102,7 @@
         1080,
         7432
       ],
-      "id": "208e2766-d17e-5079-8b88-6025621e2025",
+      "id": "70cb9751-c703-5ee4-8c60-35ac4d8ba18a",
       "name": "Send held message",
       "credentials": {
         "httpHeaderAuth": {
@@ -9698,7 +10126,7 @@
         -204,
         17684
       ],
-      "id": "88923e92-9122-587e-87f3-6d821836cc64",
+      "id": "4f3b98c8-1523-5fb6-8eca-cf65d88b1850",
       "name": "Partner status",
       "credentials": {
         "postgres": {
@@ -9718,7 +10146,7 @@
         56,
         17684
       ],
-      "id": "3172851e-74e0-57c5-8c47-dac2d88e7eac",
+      "id": "f645e1b7-49d4-5421-9e35-7970dbb15bf5",
       "name": "Build status reply"
     }
   ],
@@ -12685,7 +13113,7 @@
         ],
         [
           {
-            "node": "Profile input?",
+            "node": "Wallet command?",
             "type": "main",
             "index": 0
           }
@@ -12866,6 +13294,250 @@
         [
           {
             "node": "Find partner match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wallet command?": {
+      "main": [
+        [
+          {
+            "node": "Read wallet input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Profile input?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read wallet input": {
+      "main": [
+        [
+          {
+            "node": "Wallet route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wallet route": {
+      "main": [
+        [
+          {
+            "node": "Wallet link",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pay from wallet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cancel wallet charge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Demo charge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wallet link": {
+      "main": [
+        [
+          {
+            "node": "Wallet link reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wallet link reply": {
+      "main": [
+        [
+          {
+            "node": "Send prepared message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pay from wallet": {
+      "main": [
+        [
+          {
+            "node": "Wallet pay reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wallet pay reply": {
+      "main": [
+        [
+          {
+            "node": "Send prepared message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel wallet charge": {
+      "main": [
+        [
+          {
+            "node": "Wallet cancel reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wallet cancel reply": {
+      "main": [
+        [
+          {
+            "node": "Send prepared message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Demo charge": {
+      "main": [
+        [
+          {
+            "node": "Demo charge message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Demo charge message": {
+      "main": [
+        [
+          {
+            "node": "Send prepared message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wallet charge (webhook)": {
+      "main": [
+        [
+          {
+            "node": "Charge key ok?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Charge key ok?": {
+      "main": [
+        [
+          {
+            "node": "Create wallet charge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Charge refused",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create wallet charge": {
+      "main": [
+        [
+          {
+            "node": "Charge request message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Charge request message": {
+      "main": [
+        [
+          {
+            "node": "Send charge request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send charge request": {
+      "main": [
+        [
+          {
+            "node": "Charge answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wallet notify (webhook)": {
+      "main": [
+        [
+          {
+            "node": "Notify key ok?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify key ok?": {
+      "main": [
+        [
+          {
+            "node": "Notify message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify message": {
+      "main": [
+        [
+          {
+            "node": "Send prepared message",
             "type": "main",
             "index": 0
           }

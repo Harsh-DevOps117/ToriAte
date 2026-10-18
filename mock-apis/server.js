@@ -16,6 +16,7 @@ function reset() {
     whatsapp: [],
     llm: { requests: 0, last: null },
     geocode: { requests: 0 },
+    razorpay: { orders: {}, payments: {} },
     media: { requests: 0 },
     faults: { calendar_fail_next: 0, whatsapp_fail_next: 0, llm_fail_next: 0, geocode_fail_next: 0 },
   };
@@ -374,6 +375,35 @@ function geocode(req, res, url) {
   })));
 }
 
+// Razorpay (RAZORPAY_API_URL=http://mock-apis:8090/razorpay/v1): orders, payments, capture. Tests "pay"
+// an order with POST /_razorpay/pay { order_id, capture } (capture: false = authorised only).
+function razorpay(req, res, path, raw) {
+  if (!/^Basic /.test(req.headers.authorization || '')) return send(res, 401, { error: { code: 'BAD_REQUEST_ERROR', description: 'auth' } });
+  const rp = state.razorpay;
+  if (path === '/razorpay/v1/orders' && req.method === 'POST') {
+    const b = parseJson(raw) || {};
+    if (!Number.isInteger(b.amount) || b.amount < 100 || b.currency !== 'INR') {
+      return send(res, 400, { error: { code: 'BAD_REQUEST_ERROR', description: 'amount' } });
+    }
+    const id = 'order_' + crypto.randomBytes(7).toString('hex');
+    rp.orders[id] = { id, entity: 'order', amount: b.amount, currency: 'INR', receipt: b.receipt, notes: b.notes, status: 'created' };
+    return send(res, 200, rp.orders[id]);
+  }
+  let m = path.match(/^\/razorpay\/v1\/payments\/([\w]+)$/);
+  if (m && req.method === 'GET') {
+    return rp.payments[m[1]] ? send(res, 200, rp.payments[m[1]])
+                             : send(res, 400, { error: { code: 'BAD_REQUEST_ERROR', description: 'The id provided does not exist' } });
+  }
+  m = path.match(/^\/razorpay\/v1\/payments\/([\w]+)\/capture$/);
+  if (m && req.method === 'POST') {
+    const pay = rp.payments[m[1]];
+    if (!pay || pay.status !== 'authorized') return send(res, 400, { error: { code: 'BAD_REQUEST_ERROR', description: 'not authorized' } });
+    pay.status = 'captured';
+    return send(res, 200, pay);
+  }
+  send(res, 404, { error: { code: 'BAD_REQUEST_ERROR', description: 'unknown path' } });
+}
+
 function snapshot() {
   const calendars = {};
   for (const [id, events] of Object.entries(state.calendars)) {
@@ -438,6 +468,17 @@ http.createServer(async (req, res) => {
     if (path === '/google/token' && req.method === 'POST') return googleToken(req, res, raw);
     if (path.startsWith('/google/calendar/v3/')) return googleCalendar(req, res, path, raw);
     if (path.startsWith('/whatsapp/')) return whatsapp(req, res, path, raw);
+    if (path.startsWith('/razorpay/')) return razorpay(req, res, path, raw);
+    if (path === '/_razorpay/pay' && req.method === 'POST') {
+      const b = parseJson(raw) || {};
+      const order = state.razorpay.orders[b.order_id];
+      if (!order) return send(res, 404, { error: 'no such order' });
+      const id = 'pay_' + crypto.randomBytes(7).toString('hex');
+      state.razorpay.payments[id] = { id, entity: 'payment', order_id: order.id, amount: b.amount ?? order.amount, currency: 'INR',
+                                      status: b.capture === false ? 'authorized' : 'captured' };
+      order.status = 'paid';
+      return send(res, 200, state.razorpay.payments[id]);
+    }
     if (path.startsWith('/groq/')) return groq(req, res, path, raw);
     if (path === '/geocode/search' && req.method === 'GET') return geocode(req, res, url);
     send(res, 404, { error: 'not found' });

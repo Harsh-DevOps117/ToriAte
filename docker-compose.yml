@@ -43,6 +43,9 @@ x-n8n-env: &n8n-env
   TRANSCRIBE_MODEL: ${TRANSCRIBE_MODEL:-}
   # where voice notes are relayed as text (workflow 06 itself); empty = this n8n's WhatsApp Trigger
   BOT_RELAY_URL: ${BOT_RELAY_URL:-}
+  # Tori Wallet (workflow 06): key for /webhook/wallet/charge and /notify; WALLET_DEMO=1 enables "test booking 300"
+  WALLET_API_KEY: ${WALLET_API_KEY:-}
+  WALLET_DEMO: ${WALLET_DEMO:-0}
   # travel partner matching (workflows 07–12); empty = the default in public.travel_cfg()
   TRAVEL_MAX_SOURCE_DISTANCE_KM: ${TRAVEL_MAX_SOURCE_DISTANCE_KM:-}
   TRAVEL_MAX_DESTINATION_DISTANCE_KM: ${TRAVEL_MAX_DESTINATION_DISTANCE_KM:-}
@@ -212,6 +215,12 @@ services:
       PGPASSWORD: ${BOT_PG_PASSWORD:-${TORI_DB_PASSWORD}}
       DATABASE_SSL: ${BOT_PG_SSL:-}
       BOARD_WHATSAPP_NUMBER: ${BOARD_WHATSAPP_NUMBER:-}
+      # Tori Wallet: Razorpay keys (test mode) stay in this container only
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+      WALLET_API_KEY: ${WALLET_API_KEY:-}
+      TORI_BOT_URL: http://n8n:5678
     ports:
       - "127.0.0.1:${BOARD_PORT:-3001}:3000"
     depends_on:

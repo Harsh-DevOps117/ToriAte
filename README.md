@@ -231,6 +231,41 @@ posting, or **`spots 3`** later).
 - SQL: [011_joins.sql](db/migrations/011_joins.sql), `011_joins.repeatable.sql`. Tests: `db/tests/joins.sql`
   (31 checks) and scenario 7 of `scripts/profile_e2e.py`.
 
+### Tori Wallet (prepaid credits, one-tap checkout)
+
+People add money once and pay for bookings with one tap. 1 credit = ₹1. Balances live in this repo's
+Postgres as a **double-entry ledger**: every change is a journal entry whose amounts sum to 0, and a person's
+balance can never go below 0 ([012_wallet.sql](db/migrations/012_wallet.sql), `012_wallet.repeatable.sql`).
+
+- **Add credits:**
+  1. On WhatsApp, "add credits" (or "wallet", "balance") replies with the balance and a one-time link,
+     valid 15 minutes.
+  2. The link logs into **`/wallet`** on the board app: balance, ₹200–₹2,000 packs or a custom amount,
+     **Razorpay Checkout** (UPI / card / netbanking), history.
+  3. The server checks Checkout's signature, asks Razorpay for the real amount and status (capturing if
+     needed), and credits once. The **webhook** `POST /api/razorpay/webhook` does the same if the tab was
+     closed; replays are ignored.
+  4. The bot then sends "✅ ₹500 added".
+- **One-tap checkout:**
+  1. A booking system calls `POST <n8n>/webhook/wallet/charge` with `x-tori-key: $WALLET_API_KEY` and
+     `{ wa_id, amount_paise, description, ref, source }`.
+  2. The person gets **[Pay ₹X] [Cancel]**. One tap deducts from the wallet; no payment page.
+  3. Not enough credits → the same message carries an add-credits link.
+  4. The same `ref` twice is the same charge.
+- **Try it from a phone:** with `WALLET_DEMO=1`, "test booking 300" makes a demo charge.
+- **Limits** (`tori_settings`, `wallet_*`): ₹100–₹10,000 per top-up, ₹10,000 balance cap, charges valid 30 min.
+- **Keys:**
+  - `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` (test mode) / `RAZORPAY_WEBHOOK_SECRET` live in `.env` and only
+    reach the web container.
+  - Set the webhook in Razorpay → Settings → Webhooks: `https://<board>/api/razorpay/webhook`, events
+    `payment.captured`, `order.paid`, `payment.failed`.
+  - Keep the downloaded key CSV out of Git; `.gitignore` covers `rzp-*.csv`.
+- **Tests:**
+  - `db/tests/wallet.sql` (31 checks);
+  - `scripts/wallet-e2e.sh`: scratch Postgres + fake Razorpay + the web app (20 HTTP checks: signatures,
+    capture, credited once, webhook-only, tampering);
+  - scenario 9 of `scripts/profile_e2e.py`: WhatsApp link, charge webhook, Pay / Cancel, demo.
+
 ### People outside WhatsApp's 24-hour window
 
 WhatsApp only lets the bot message someone within 24 hours of their last message; after that only an

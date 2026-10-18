@@ -47,3 +47,8 @@ web/public/fonts/NeueMachina*
 /tmp/
 *.tmp
 .cache/
+
+# Razorpay API keys (downloaded from the dashboard): never commit
+rzp-*.csv
+rsp*.csv
+*razorpay*key*.csv

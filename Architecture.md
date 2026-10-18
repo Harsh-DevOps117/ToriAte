@@ -34,6 +34,7 @@ cards, radius matching, saved messages, the partner board and joining games.
 18. [The WhatsApp bot and partner matching (workflow 06)](#18-the-whatsapp-bot-and-partner-matching-workflow-06)
 19. [Travel partner matching (workflows 07–12)](#19-travel-partner-matching-workflows-0712)
 20. [Profiles, cards, joins and the board](#20-profiles-cards-joins-and-the-board)
+21. [Tori Wallet](#21-tori-wallet)
 
 ---
 
@@ -1355,3 +1356,51 @@ the second reply may not know about the first.
 - The board is public and has no login: anyone with the address sees first names, places and times.
 - Card photos depend on the board's public address; quick tunnels change after a restart.
 - The Express backend in the design doc is not built; n8n + SQL functions do its job.
+
+---
+
+## 21. Tori Wallet
+
+Prepaid credits (1 credit = ₹1), added through Razorpay and spent with one tap. Design notes and the
+compliance questions are kept locally in `payment.md` (not in Git).
+
+```mermaid
+flowchart LR
+  U["WhatsApp: add credits"] --> BOT["n8n 06: wallet_issue_link"]
+  BOT -->|"one-time link (15 min)"| W["web /wallet/login → /wallet"]
+  W -->|"POST /api/wallet/topups"| RZ["Razorpay Orders + Checkout"]
+  RZ -->|"handler: signature"| V["/api/wallet/topups/verify"]
+  RZ -->|"payment.captured / order.paid"| WH["/api/razorpay/webhook"]
+  V & WH -->|"fetch + capture payment, wallet_credit_topup (once)"| PG[("Postgres ledger")]
+  BS["Booking system"] -->|"POST /webhook/wallet/charge"| BOT2["n8n 06: [Pay ₹X] [Cancel]"]
+  BOT2 -->|"tap: wallet_pay_charge"| PG
+```
+
+**Ledger:**
+
+| Table | One row is |
+|---|---|
+| `wallet_accounts` | `user:<id>` per person, plus `tori:razorpay` (money received) and `tori:sales` (credits spent) |
+| `wallet_journal` | one movement: top-up, charge, refund or adjustment, with a unique idempotency key |
+| `wallet_postings` | its legs, in paise, summing to 0 |
+| `wallet_topups` | one add-credits payment (`rzp_order_id`, `rzp_payment_id`) |
+| `wallet_charges` | one one-tap payment request |
+| `wallet_links`, `wallet_sessions` | hashed one-time links and web sessions |
+| `razorpay_events` | every webhook, stored before processing |
+
+**Rules** (SQL, one transaction each): `wallet_post` is the only way money moves.
+- It is idempotent, and it locks the person's account row.
+- It refuses unbalanced entries and negative balances.
+- `wallet_credit_topup` credits only if the amount equals the order's, and only once.
+- `wallet_pay_charge` checks the owner, status, expiry and balance under the same lock.
+
+Measured: 25 parallel ₹100 payments from a ₹1,000 wallet gave exactly 10 paid and 15 "insufficient", with
+the balance at 0. The same webhook delivered 20 times at once credited once.
+
+**Security:**
+- The key secret is only in the web container. Signatures (`order|payment` with the key secret; the raw
+  webhook body with the webhook secret) are compared in constant time.
+- Amounts come from our rows, never the browser. The payment is re-fetched from Razorpay before
+  crediting.
+- The board's own queries stay read-only; only `wallet_*` calls use a read-write transaction.
+- The session cookie is httpOnly, SameSite=Lax, and secure behind HTTPS.

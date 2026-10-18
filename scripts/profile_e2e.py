@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 
 N8N = os.environ.get('TRAVEL_E2E_WEBHOOK', 'http://localhost:15678/webhook/wa-test')
@@ -352,6 +353,52 @@ check(any('badminton partner tomorrow' in m['text'] and 'HSR Layout' in m['text'
       'P: a spoken request ("badminton partner tomorrow 7 PM in HSR Layout") is acked like a typed one')
 check(psql("SELECT count(*) FROM tori_messages WHERE wa_message_id LIKE '%.voice' AND body ILIKE '%badminton%'") == '1',
       'P: the transcript is logged as a text message from Pranav')
+
+# ── 9. Tori Wallet: "add credits" link, one-tap checkout from a booking, demo charge ─────────────
+n = send(P, 'Pranav Rao', 'add credits', llm=False)
+r = replies(P, n)
+check('Tori Wallet' in last(r) and re.search(r'https://board\.test/wallet/login\?t=[0-9a-f]{64}', last(r)) is not None,
+      'P: "add credits" → balance and a one-time wallet link')
+tok = re.search(r't=([0-9a-f]{64})', last(r)).group(1)
+check(psql(f"SELECT public.wallet_open_session('{tok}') IS NOT NULL") == 't', 'the link opens a wallet session')
+
+def charge(body, key='e2e-wallet-key'):
+    rq = urllib.request.Request(N8N.replace('/wa-test', '/wallet/charge'), data=json.dumps(body).encode(), method='POST',
+                                headers={'content-type': 'application/json', 'x-tori-key': key})
+    try:
+        with urllib.request.urlopen(rq, timeout=30) as resp:
+            return resp.status, json.loads(resp.read() or b'{}')
+    except urllib.error.HTTPError as e:
+        return e.code, {}
+
+st, _ = charge({'wa_id': P, 'amount_paise': 30000, 'description': 'Court 2, Smash Arena · Sat 7 PM', 'ref': 'b-1', 'source': 'e2e'}, key='nope')
+check(st == 401, 'charge webhook: a wrong key is refused')
+n = len(msgs(P))
+st, ch = charge({'wa_id': P, 'amount_paise': 30000, 'description': 'Court 2, Smash Arena · Sat 7 PM', 'ref': 'b-1', 'source': 'e2e'})
+r = replies(P, n)
+pay_btn = button(r[-1] if r else None, 'wp_yes_')
+check(st == 200 and ch.get('enough') is False and pay_btn and '₹300' in last(r) and 'wallet/login' in last(r),
+      'booking asks for ₹300; wallet empty → [Pay ₹300] plus an add-credits link')
+n = send(P, 'Pranav Rao', button=pay_btn)
+r = replies(P, n)
+check('short' in last(r), 'P: tapping Pay with ₹0 → "₹300 short"')
+psql("SELECT public.wallet_attach_order((public.wallet_create_topup((SELECT id FROM tori_users WHERE phone = '+919100000001'), 50000) ->> 'topup_id')::uuid, 'order_E2E')")
+psql("SELECT public.wallet_credit_topup('order_E2E', 'pay_E2E', 50000, 'e2e')")
+n = send(P, 'Pranav Rao', button=pay_btn)
+r = replies(P, n)
+check('Paid ₹300' in last(r) and '₹200' in last(r), 'P: after adding ₹500, one tap pays ₹300 → ₹200 left')
+n = send(P, 'Pranav Rao', button=pay_btn)
+r = replies(P, n)
+check('Already paid' in last(r), 'P: a second tap charges nothing')
+n = send(P, 'Pranav Rao', 'test booking 150', llm=False)
+r = replies(P, n)
+demo = r[-1] if r else {}
+check(button(demo, 'wp_yes_') and '₹150' in demo.get('text', '') and '₹200 → ₹50' in demo.get('text', ''),
+      'P: "test booking 150" (demo) → [Pay ₹150], ₹200 → ₹50')
+n = send(P, 'Pranav Rao', button=button(demo, 'wp_no_'))
+r = replies(P, n)
+check('cancelled' in last(r) and psql("SELECT public.wallet_balance((SELECT id FROM tori_users WHERE phone = '+919100000001'))") == '20000',
+      'P: Cancel → nothing taken, still ₹200')
 
 print(f"\n{'ALL PASSED' if not failures else 'FAILED: ' + '; '.join(failures)}")
 sys.exit(1 if failures else 0)

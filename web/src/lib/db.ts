@@ -33,3 +33,21 @@ export async function rows<T>(sql: string, params: unknown[] = []): Promise<T[]>
     c.release();
   }
 }
+
+// Wallet only: one wallet_* function call in a read-write transaction (the functions hold every rule).
+// The board's own queries above stay read-only.
+export async function rpc<T>(sql: string, params: unknown[] = []): Promise<T | null> {
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query("SET LOCAL statement_timeout = '10s'");
+    const r = await c.query(sql, params);
+    await c.query('COMMIT');
+    return (r.rows[0] as T) ?? null;
+  } catch (e) {
+    await c.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    c.release();
+  }
+}
