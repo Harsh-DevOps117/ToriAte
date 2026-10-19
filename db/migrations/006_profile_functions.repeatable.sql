@@ -82,14 +82,20 @@ CREATE OR REPLACE FUNCTION public.tori_log_inbound(p_wa_id text, p_name text, p_
 RETURNS jsonb
 LANGUAGE plpgsql AS $$
 DECLARE
-  u public.tori_users;
+  u    public.tori_users;
+  v_step text;
 BEGIN
   IF coalesce(p_wa_id, '') !~ '^[1-9]\d{5,14}$' THEN
     RETURN jsonb_build_object('duplicate', false);     -- status update or unknown payload: let it through
   END IF;
   u := public.tori_user(p_wa_id, p_name);
+  -- in the middle of adding a ToriPay payee (014): the bot sends the answer there; bank account numbers
+  -- are not kept in the message log
+  SELECT d.step INTO v_step FROM public.toripay_drafts d WHERE d.user_id = u.id AND d.expires_at > now();
   INSERT INTO public.tori_messages (user_id, wa_message_id, direction, type, body)
-  VALUES (u.id, nullif(p_message_id, ''), 'in', nullif(p_type, ''), nullif(p_body, ''))
+  VALUES (u.id, nullif(p_message_id, ''), 'in', nullif(p_type, ''),
+          CASE WHEN v_step IN ('account', 'account_confirm') AND regexp_replace(coalesce(p_body, ''), '[\s.-]', '', 'g') ~ '\d{6,}' THEN '[bank account number]'
+               ELSE nullif(p_body, '') END)
   ON CONFLICT (wa_message_id) DO NOTHING;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('user_id', u.id, 'duplicate', true);
@@ -97,7 +103,7 @@ BEGIN
   -- any message reopens WhatsApp's 24-hour window: the match flow checks last_message_at
   UPDATE public.partner_requests SET last_message_at = now()
    WHERE wa_id = p_wa_id AND status IN ('draft', 'pending_profile', 'open', 'proposed');
-  RETURN jsonb_build_object('user_id', u.id, 'duplicate', false);
+  RETURN jsonb_build_object('user_id', u.id, 'duplicate', false, 'toripay_step', v_step);
 END $$;
 
 -- What the bot sent (profile questions and the replies that follow them).

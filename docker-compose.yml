@@ -46,6 +46,8 @@ x-n8n-env: &n8n-env
   # Tori Wallet (workflow 06): key for /webhook/wallet/charge and /notify; WALLET_DEMO=1 enables "test booking 300"
   WALLET_API_KEY: ${WALLET_API_KEY:-}
   WALLET_DEMO: ${WALLET_DEMO:-0}
+  # ToriPay (workflow 06): the web app that sends payouts after "tori pay gym 500"
+  TORI_WEB_URL: ${TORI_WEB_URL:-http://web:3000}
   # travel partner matching (workflows 07–12); empty = the default in public.travel_cfg()
   TRAVEL_MAX_SOURCE_DISTANCE_KM: ${TRAVEL_MAX_SOURCE_DISTANCE_KM:-}
   TRAVEL_MAX_DESTINATION_DISTANCE_KM: ${TRAVEL_MAX_DESTINATION_DISTANCE_KM:-}
@@ -219,7 +221,15 @@ services:
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
       RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+      # tests point these at mock-apis; empty = the real Razorpay API and IFSC directory
+      RAZORPAY_API_URL: ${RAZORPAY_API_URL:-}
+      IFSC_API_URL: ${IFSC_API_URL:-}
       WALLET_API_KEY: ${WALLET_API_KEY:-}
+      # ToriPay: RazorpayX payouts to gyms (empty account number = payments stay owed for the team) and the
+      # team's key for /api/admin/payees
+      RAZORPAYX_ACCOUNT_NUMBER: ${RAZORPAYX_ACCOUNT_NUMBER:-}
+      RAZORPAYX_WEBHOOK_SECRET: ${RAZORPAYX_WEBHOOK_SECRET:-}
+      TORI_ADMIN_KEY: ${TORI_ADMIN_KEY:-}
       TORI_BOT_URL: http://n8n:5678
     ports:
       - "127.0.0.1:${BOARD_PORT:-3001}:3000"

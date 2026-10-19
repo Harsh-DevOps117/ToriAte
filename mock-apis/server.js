@@ -16,9 +16,10 @@ function reset() {
     whatsapp: [],
     llm: { requests: 0, last: null },
     geocode: { requests: 0 },
-    razorpay: { orders: {}, payments: {} },
+    razorpay: { orders: {}, payments: {}, contacts: {}, fund_accounts: {}, payouts: {}, payout_keys: {} },
     media: { requests: 0 },
-    faults: { calendar_fail_next: 0, whatsapp_fail_next: 0, llm_fail_next: 0, geocode_fail_next: 0 },
+    payoutRequests: [],
+    faults: { calendar_fail_next: 0, whatsapp_fail_next: 0, llm_fail_next: 0, geocode_fail_next: 0, payout_fail_next: 0 },
   };
 }
 reset();
@@ -401,6 +402,43 @@ function razorpay(req, res, path, raw) {
     pay.status = 'captured';
     return send(res, 200, pay);
   }
+  // RazorpayX (ToriPay): contacts, bank fund accounts, payouts. A payout needs the RazorpayX account
+  // number and an X-Payout-Idempotency key; the same key returns the same payout.
+  const bad = (d) => send(res, 400, { error: { code: 'BAD_REQUEST_ERROR', description: d } });
+  if (path === '/razorpay/v1/contacts' && req.method === 'POST') {
+    const b = parseJson(raw) || {};
+    if (!b.name) return bad('name');
+    const id = 'cont_' + crypto.randomBytes(7).toString('hex');
+    rp.contacts[id] = { id, entity: 'contact', ...b };
+    return send(res, 200, rp.contacts[id]);
+  }
+  if (path === '/razorpay/v1/fund_accounts' && req.method === 'POST') {
+    const b = parseJson(raw) || {};
+    const ba = b.bank_account || {};
+    if (!rp.contacts[b.contact_id]) return bad('contact_id');
+    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ba.ifsc || '') || !/^\d{9,18}$/.test(ba.account_number || '')) return bad('bank_account');
+    const id = 'fa_' + crypto.randomBytes(7).toString('hex');
+    rp.fund_accounts[id] = { id, entity: 'fund_account', contact_id: b.contact_id, account_type: 'bank_account', bank_account: ba, active: true };
+    return send(res, 200, rp.fund_accounts[id]);
+  }
+  if (path === '/razorpay/v1/payouts' && req.method === 'POST') {
+    const b = parseJson(raw) || {};
+    const key = req.headers['x-payout-idempotency'] || '';
+    if (!key) return bad('X-Payout-Idempotency');
+    if (rp.payout_keys[key]) return send(res, 200, rp.payouts[rp.payout_keys[key]]);
+    if (state.faults.payout_fail_next > 0) {
+      state.faults.payout_fail_next--;
+      return send(res, 500, { error: { code: 'SERVER_ERROR', description: 'injected fault' } });
+    }
+    if (!b.account_number) return bad('account_number');
+    if (!rp.fund_accounts[b.fund_account_id]) return bad('fund_account_id');
+    if (!Number.isInteger(b.amount) || b.amount < 100) return bad('amount');
+    const id = 'pout_' + crypto.randomBytes(7).toString('hex');
+    rp.payouts[id] = { id, entity: 'payout', fund_account_id: b.fund_account_id, amount: b.amount, currency: 'INR', mode: b.mode,
+                       purpose: b.purpose, reference_id: b.reference_id, narration: b.narration, status: 'processing', idempotency_key: key };
+    rp.payout_keys[key] = id;
+    return send(res, 200, rp.payouts[id]);
+  }
   send(res, 404, { error: { code: 'BAD_REQUEST_ERROR', description: 'unknown path' } });
 }
 
@@ -417,6 +455,7 @@ function snapshot() {
     llm: state.llm,
     geocode: state.geocode,
     tokenRequests: state.tokenRequests,
+    payoutRequests: state.payoutRequests,
     faults: state.faults,
   };
 }
@@ -478,6 +517,20 @@ http.createServer(async (req, res) => {
                                       status: b.capture === false ? 'authorized' : 'captured' };
       order.status = 'paid';
       return send(res, 200, state.razorpay.payments[id]);
+    }
+    if (path === '/_razorpay/state') return send(res, 200, state.razorpay);
+    // Razorpay's IFSC directory (IFSC_API_URL=http://mock-apis:8090/ifsc): a few known codes, 404 otherwise
+    if (path.startsWith('/ifsc/') && req.method === 'GET') {
+      const BANKS = { HDFC: 'HDFC Bank', ICIC: 'ICICI Bank', SBIN: 'State Bank of India', UTIB: 'Axis Bank' };
+      const code = decodeURIComponent(path.slice(6)).toUpperCase();
+      const bank = BANKS[code.slice(0, 4)];
+      if (!bank || !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(code) || code.endsWith('999999')) return send(res, 404, 'Not Found');
+      return send(res, 200, { BANK: bank, BRANCH: 'HSR LAYOUT', CITY: 'BANGALORE', IFSC: code, BANKCODE: code.slice(0, 4) });
+    }
+    // the web app's payout endpoint, for the WhatsApp tests (TORI_WEB_URL=http://mock-apis:8090)
+    if (path === '/api/payouts/execute' && req.method === 'POST') {
+      state.payoutRequests.push({ ...(parseJson(raw) || {}), key: req.headers['x-tori-key'] || '' });
+      return send(res, 200, { state: 'owed', reason: 'mock' });
     }
     if (path.startsWith('/groq/')) return groq(req, res, path, raw);
     if (path === '/geocode/search' && req.method === 'GET') return geocode(req, res, url);

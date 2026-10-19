@@ -3,7 +3,7 @@
 
 Started by scripts/wallet-e2e.sh: a scratch Postgres, the mock server (fake Razorpay) and the web app,
 all on localhost. Checks login, limits, the Checkout callback (signature + capture), webhook replays,
-a webhook-only top-up (tab closed), one-tap charges and the ledger invariants.
+a webhook-only top-up (tab closed), one-tap charges, ToriPay payouts (RazorpayX) and the ledger invariants.
 """
 import hashlib
 import hmac
@@ -20,6 +20,8 @@ MOCK = os.environ['WALLET_E2E_MOCK']
 PG = os.environ['WALLET_E2E_PG']                    # docker container name
 KEY_SECRET = os.environ['RAZORPAY_KEY_SECRET']
 WEBHOOK_SECRET = os.environ['RAZORPAY_WEBHOOK_SECRET']
+BOT = {'x-tori-key': os.environ['WALLET_API_KEY']}
+ADMIN = {'x-tori-admin': os.environ['TORI_ADMIN_KEY']}
 WA = '919800000001'
 failures = []
 
@@ -131,6 +133,94 @@ check(json.loads(psql('SELECT public.wallet_check()')) == {'negative_wallets': 0
 s, _, _ = req('POST', WEB + '/wallet/logout')
 s, _, _ = req('GET', WEB + '/api/wallet')
 check(s == 401, 'logged out')
+
+# ── 7. ToriPay: the team adds a gym, a payment goes out through RazorpayX ───────────────────────
+def payout_webhook(event, payout):
+    raw = json.dumps({'event': event, 'payload': {'payout': {'entity': payout}}, 'created_at': 2}).encode()
+    return req('POST', WEB + '/api/razorpayx/webhook', raw=raw,
+               headers={'x-razorpay-signature': sign(WEBHOOK_SECRET, raw.decode()), 'x-razorpay-event-id': 'evt_' + payout['id'] + '_' + event})
+
+
+def toripay(handle, paise):
+    pid = psql(f"SELECT id FROM payees WHERE handle = '{handle}'")
+    start = json.loads(psql(f"SELECT public.toripay_start('{WA}', '{pid}', {paise}, NULL)"))
+    return json.loads(psql(f"SELECT public.toripay_confirm('{start['payment_id']}', '{WA}')"))
+
+
+uid = psql(f"SELECT id FROM tori_users WHERE phone = '+{WA}'")
+t = json.loads(psql(f"SELECT public.wallet_create_topup('{uid}', 100000)"))
+psql(f"SELECT public.wallet_attach_order('{t['topup_id']}', 'order_tp1')")
+psql("SELECT public.wallet_credit_topup('order_tp1', 'pay_tp1', 100000, 'e2e')")      # ₹1,450 in the wallet
+
+GYM = {'handle': 'fitzone-hsr', 'display_name': 'FitZone Gym', 'category': 'gym', 'area': 'HSR Layout', 'aliases': ['fitzone'],
+       'owner_wa': '+91 98765 00001', 'account_holder': 'FITZONE FITNESS', 'ifsc': 'HDFC0001234',
+       'account_number': '50100123451234', 'commission_bps': 100}
+s, r, _ = req('POST', WEB + '/api/admin/payees', GYM)
+check(s == 401, 'adding a business needs the admin key')
+s, r, _ = req('POST', WEB + '/api/admin/payees', GYM, headers=BOT)
+check(s == 401, "the bot's key is not the admin key")
+s, r, _ = req('POST', WEB + '/api/admin/payees', {**GYM, 'ifsc': 'HDFC123'}, headers=ADMIN)
+check(s == 400 and r['error'] == 'ifsc', 'a bad IFSC is refused')
+s, r, _ = req('POST', WEB + '/api/admin/payees', GYM, headers=ADMIN)
+check(s == 200 and r['has_fund_account'] and r['last4'] == '1234' and r['bank'] == 'HDFC', 'FitZone added with a RazorpayX fund account')
+x = req('GET', MOCK + '/_razorpay/state')[1]
+check(any(f['bank_account']['account_number'] == GYM['account_number'] for f in x['fund_accounts'].values()),
+      'RazorpayX got the account number')
+check(psql("SELECT count(*) FROM payees p WHERE row_to_json(p)::text LIKE '%50100123451234%'") == '0', '…and Tori did not keep it')
+s, r, _ = req('GET', WEB + '/api/admin/payees?q=fitzone', headers=ADMIN)
+check(s == 200 and r[0]['handle'] == 'fitzone-hsr' and 'account_number' not in r[0], 'search finds it, no account number in it')
+
+paid = toripay('fitzone-hsr', 20000)
+check(paid['state'] == 'paid' and paid['net_paise'] == 19800, '₹200 paid from the wallet (₹198 to FitZone after 1 %)')
+s, r, _ = req('POST', WEB + '/api/payouts/execute', {'payment_id': paid['payment_id']})
+check(s == 401, 'payout endpoint needs the bot key')
+s, r, _ = req('POST', WEB + '/api/payouts/execute', {'payment_id': paid['payment_id']}, headers=BOT)
+check(s == 200 and r['state'] == 'processing' and r['payout_id'].startswith('pout_'), 'payout sent to RazorpayX')
+s, r2, _ = req('POST', WEB + '/api/payouts/execute', {'payment_id': paid['payment_id']}, headers=BOT)
+x = req('GET', MOCK + '/_razorpay/state')[1]
+check(r2['state'] == 'processing' and len(x['payouts']) == 1, 'asking twice sends one payout')
+po = x['payouts'][r['payout_id']]
+check(po['amount'] == 19800 and po['idempotency_key'] == po['reference_id'], '₹198, with an idempotency key')
+s, r, _ = payout_webhook('payout.processed', {**po, 'status': 'processed'})
+s, r, _ = payout_webhook('payout.processed', {**po, 'status': 'processed'})
+check(r.get('duplicate') is True and psql(f"SELECT status FROM payee_payments WHERE id = '{paid['payment_id']}'") == 'settled',
+      'payout.processed: settled (replay ignored)')
+
+before = int(psql(f"SELECT public.wallet_balance(id) FROM tori_users WHERE phone = '+{WA}'"))
+paid = toripay('fitzone-hsr', 10000)
+po = req('POST', WEB + '/api/payouts/execute', {'payment_id': paid['payment_id']}, headers=BOT)[1]
+s, r, _ = payout_webhook('payout.reversed', {'id': po['payout_id'], 'status': 'reversed', 'reference_id': 'x',
+                                             'status_details': {'description': 'beneficiary bank offline'}})
+check(int(psql(f"SELECT public.wallet_balance(id) FROM tori_users WHERE phone = '+{WA}'")) == before, 'payout.reversed: the ₹100 is back in the wallet')
+
+paid = toripay('fitzone-hsr', 10000)                        # the webhook arrives before our own payout_mark
+ref = 'toripay-' + paid['payment_id'].replace('-', '')
+s, r, _ = payout_webhook('payout.processed', {'id': 'pout_early1', 'status': 'processed', 'reference_id': ref})
+check(psql(f"SELECT status || ' ' || rzp_payout_id FROM payee_payments WHERE id = '{paid['payment_id']}'") == 'settled pout_early1',
+      'a webhook that beats us is matched by its reference')
+
+req('POST', MOCK + '/_faults', {'payout_fail_next': 1})
+paid = toripay('fitzone-hsr', 10000)
+r = req('POST', WEB + '/api/payouts/execute', {'payment_id': paid['payment_id']}, headers=BOT)[1]
+check(r['state'] == 'owed', 'RazorpayX down: the payment stays owed')
+r = req('POST', WEB + '/api/payouts/execute', {'payment_id': paid['payment_id']}, headers=BOT)[1]
+check(r['state'] == 'processing', '…and goes out on a retry')
+
+s, r, _ = req('POST', WEB + '/api/admin/payees', {'handle': 'green-turf', 'display_name': 'Green Turf', 'category': 'turf',
+              'account_holder': 'GREEN TURF', 'ifsc': 'SBIN0000001', 'account_last4': '5555'}, headers=ADMIN)
+check(s == 200 and not r['has_fund_account'], 'a business without a fund account (bank details on file only)')
+paid = toripay('green-turf', 15000)
+r = req('POST', WEB + '/api/payouts/execute', {'payment_id': paid['payment_id']}, headers=BOT)[1]
+check(r['state'] == 'owed', 'no fund account: owed')
+s, r, _ = req('GET', WEB + '/api/admin/payees/owed', headers=ADMIN)
+check(s == 200 and any(o['handle'] == 'green-turf' and o['owed_paise'] == 15000 for o in r), 'owed report: Green Turf ₹150')
+s, r, _ = req('POST', WEB + '/api/admin/payees/settle', {'handle': 'green-turf', 'reference': 'NEFT N123'}, headers=ADMIN)
+check(s == 200 and r['settled_paise'] == 15000, 'settled by bank transfer')
+s, r, _ = req('POST', WEB + '/api/toripay/answer', {'wa_id': WA, 'text': '50100123456789'})
+check(s == 401, 'the add-a-payee endpoint needs the bot key')
+s, r, _ = req('POST', WEB + '/api/toripay/answer', {'wa_id': WA, 'text': 'hello'}, headers=BOT)
+check(s == 200 and r['kind'] == 'add_gone', 'no payee being added: nothing to answer')
+check(json.loads(psql('SELECT public.wallet_check()')) == {'negative_wallets': 0, 'unbalanced_journals': 0}, 'ledger invariants hold after ToriPay')
 
 print(f"\n{'ALL PASSED' if not failures else 'FAILED: ' + '; '.join(failures)}")
 sys.exit(1 if failures else 0)

@@ -35,6 +35,7 @@ cards, radius matching, saved messages, the partner board and joining games.
 19. [Travel partner matching (workflows 07–12)](#19-travel-partner-matching-workflows-0712)
 20. [Profiles, cards, joins and the board](#20-profiles-cards-joins-and-the-board)
 21. [Tori Wallet](#21-tori-wallet)
+22. [ToriPay](#22-toripay)
 
 ---
 
@@ -1404,3 +1405,101 @@ the balance at 0. The same webhook delivered 20 times at once credited once.
   crediting.
 - The board's own queries stay read-only; only `wallet_*` calls use a read-write transaction.
 - The session cookie is httpOnly, SameSite=Lax, and secure behind HTTPS.
+
+---
+
+## 22. ToriPay
+
+People pay a gym, turf or coach from their Tori Wallet over WhatsApp: "tori pay gym 500". It extends §21.
+The money is collected once (the wallet top-up), held as wallet credit, and paid out to the business's bank
+through RazorpayX.
+
+```mermaid
+flowchart LR
+  T["Team: scripts/payee.sh add"] -->|"POST /api/admin/payees"| X1["RazorpayX contact + fund account"]
+  T --> PY[("payees: IFSC, last 4, fund account id")]
+  U["WhatsApp: tori pay gym 500"] --> BOT["n8n 06 §16: toripay_bot"]
+  BOT -->|"shortcut, else search; list if several"| C["[Pay ₹500] [Cancel]"]
+  C -->|"tap: toripay_confirm"| L[("ledger: user −500, payee +net, tori:revenue +fee")]
+  BOT -->|"POST /api/payouts/execute"| PO["web: RazorpayX payout (idempotent)"]
+  PO -->|"payout.processed / failed / reversed"| WH["/api/razorpayx/webhook: payout_settled"]
+  WH -->|"settled: payee → tori:payouts · failed: refund in full"| L
+```
+
+**Tables** (`013_payees.sql`):
+
+| Table | One row is |
+|---|---|
+| `payees` | a verified business: `handle`, name, category, area, aliases, owner's WhatsApp, account holder, IFSC, last 4 digits, RazorpayX contact and fund account ids, `commission_bps`, `verified` / `suspended` |
+| `user_payees` | a person's shortcut: (`user_id`, `nickname`) → payee |
+| `payee_payments` | one "tori pay": amount, commission, status `pending → paid → processing → settled`, or `cancelled` / `expired` / `failed`; `rzp_payout_id` |
+
+The ledger gains one `payee:<id>` account per business (what Tori owes it) and `tori:revenue`,
+`tori:payouts`. A payment posts user −amount, payee +net, revenue +commission. A payout posts
+payee −net, `tori:payouts` +net. A failed payout reverses everything, so the person gets the full amount
+back.
+
+**Functions** (`013_payees.repeatable.sql`):
+- `payee_upsert`, `payee_search`;
+- `toripay_resolve` (shortcut | one | many | none), `user_payee_set` / `_list` / `_remove`;
+- `toripay_start` (a 15-minute request), `toripay_confirm` (locks the wallet; checks the owner, status,
+  expiry, suspension and balance; saves the shortcut), `toripay_cancel`;
+- `payout_details`, `payout_mark`, `payout_settled` (idempotent; `manual:<payment>` for bank transfers),
+  `payees_owed`, `payee_settle_manual`;
+- `toripay_bot`: the bot's single entry point, which returns what to reply.
+
+**Adding a payee on WhatsApp** (`014_own_payees.sql`): an unknown name under "tori pay" starts a draft
+(`toripay_drafts`, one per person, 30 minutes).
+
+```mermaid
+sequenceDiagram
+  participant P as Person
+  participant B as n8n 06
+  participant W as web /api/toripay/answer
+  participant X as RazorpayX
+  P->>B: tori pay coach 300
+  B->>P: What's it called?
+  Note over B: Log inbound message returns toripay_step → every text goes to W
+  P->>B: name, IFSC, holder, account number
+  B->>W: each answer (x-tori-key)
+  W->>W: IFSC directory lookup · toripay_draft_answer (hash + last 4 for the number)
+  P->>B: account number again
+  B->>W: answer
+  W->>W: toripay_draft_check (hash matches?)
+  W->>X: contact + fund account (the number)
+  W->>W: toripay_draft_finish: payee (added_by), shortcut, toripay_start
+  W-->>B: confirm
+  B->>P: ✅ Saved · [Pay ₹300]
+```
+
+- `payees.added_by` set = private to that person: `payee_search` skips it, and `toripay_start` and
+  `user_payee_set` refuse anyone else.
+- "✏️ Change bank details" re-runs the draft against the same payee.
+- The draft stores `sha256(user_id:number)` and the last 4 digits, never the number.
+- `tori_log_inbound` writes "[bank account number]" for digits typed at the account steps.
+- `Google?` skips messages while a draft is open.
+
+**Payouts:**
+- `executePayout` sends only a `paid` payment that has a fund account, when `RAZORPAYX_ACCOUNT_NUMBER` is
+  set. `X-Payout-Idempotency` is the payment's reference, so a retry never pays twice.
+- On any error the payment stays owed and a later call retries it.
+- If the webhook arrives before `payout_mark`, it is matched through the payout's `reference_id`.
+- With payouts off, the team works from `payees_owed` and settles by bank transfer.
+
+**Security:**
+- Only the team's `TORI_ADMIN_KEY` can add a public business or change its bank details. The bot's
+  `WALLET_API_KEY` can only ask for a payout of a payment that is already paid, or add or change a
+  private payee for the person in the conversation.
+- Self-added payees are not verified by the team: the confirm message says "added by you", and the
+  person checks the bank, branch and last 4 digits themselves. (RazorpayX account validation, a penny
+  drop, can be added once payouts are activated.)
+- The account number is never stored or logged by Tori.
+- People can only pay verified businesses, and the confirm message shows the bank, the last 4 digits and
+  the holder's name before the tap.
+
+**Measured:** 40 parallel confirms (20 payments of ₹100, each tapped twice) from a ₹1,000 wallet gave exactly
+10 paid, 10 "already paid" and 20 "insufficient". The balance ended at 0 and the ledger stayed balanced.
+
+**Open:**
+- RazorpayX payouts must be activated on the account; contacts and fund accounts already work.
+- Commission, GST and TCS treatment need a CA's view; see `payment.md` §2.

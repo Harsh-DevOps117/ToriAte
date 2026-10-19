@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Travel partner matching, tested end to end in a throwaway stack. The live stack is not touched.
 #   - Docker project "toritravel": its own volumes, ports 15433 (Postgres), 15678 (n8n), 18090 (mocks)
-#   - real Groq (LLM_API_KEY from .env), mock WhatsApp + mock geocoder (mock-apis)
+#   - real Groq (LLM_API_KEY from .env), mock WhatsApp + mock geocoder + fake Razorpay (mock-apis)
+#   - the web app (ToriPay's /api/toripay/answer and payouts), port 13001
 #   - workflow 06 is imported as a copy whose WhatsApp Trigger is a plain webhook (POST /webhook/wa-test)
 # Runs db/tests/travel_matching.sql and user_profiles.sql, then scripts/travel_e2e.py and profile_e2e.py
 # (~8 minutes: Groq free-tier pacing).
@@ -88,6 +89,12 @@ BOT_RELAY_URL=http://localhost:5678/webhook/wa-test
 BOT_META_APP_SECRET=e2e-test-app-secret
 WALLET_API_KEY=e2e-wallet-key
 WALLET_DEMO=1
+TORI_WEB_URL=http://web:3000
+RAZORPAY_KEY_ID=rzp_test_e2e
+RAZORPAY_KEY_SECRET=e2e-key-secret
+RAZORPAY_WEBHOOK_SECRET=e2e-webhook-secret
+RAZORPAY_API_URL=http://mock-apis:8090/razorpay/v1
+IFSC_API_URL=http://mock-apis:8090/ifsc
 EOF
 cat > "$T/override.yml" <<EOF
 services:
@@ -95,6 +102,8 @@ services:
     ports: !override ["127.0.0.1:15433:5432"]
   mock-apis:
     ports: !override ["127.0.0.1:18090:8090"]
+  web:
+    ports: !override ["127.0.0.1:13001:3000"]
   n8n-bootstrap:
     volumes: !override
       - n8ndata:/home/node/.n8n
@@ -111,11 +120,11 @@ cleanup() {
   if [ "${KEEP:-0}" != 1 ]; then "${DC[@]}" down -v >/dev/null 2>&1 || true; rm -rf "$T"; fi
 }
 trap cleanup EXIT
-"${DC[@]}" up -d --wait postgres mock-apis n8n >/dev/null
+"${DC[@]}" up -d --build --wait postgres mock-apis n8n web >/dev/null
 until curl -sf http://localhost:15678/healthz >/dev/null; do sleep 2; done
 sleep 5
 
-echo "── SQL scenarios (db/tests/travel_matching.sql, user_profiles.sql, held_messages.sql, matching_v2.sql, joins.sql, wallet.sql)"
+echo "── SQL scenarios (db/tests/travel_matching.sql, user_profiles.sql, held_messages.sql, matching_v2.sql, joins.sql, wallet.sql, toripay.sql)"
 docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/travel_matching.sql 2>&1 \
   | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
 docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/user_profiles.sql 2>&1 \
@@ -127,6 +136,8 @@ docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STO
 docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/joins.sql 2>&1 \
   | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
 docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/wallet.sql 2>&1 \
+  | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
+docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/toripay.sql 2>&1 \
   | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
 status=0
 if [ "${E2E_ONLY:-}" != profile ]; then

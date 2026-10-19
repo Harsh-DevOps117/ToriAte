@@ -5282,37 +5282,6 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.BOT_WHATSAPP_GRAPH_URL || 'https://graph.facebook.com/v19.0' }}/{{ $env.BOT_WHATSAPP_PHONE_NUMBER_ID }}/messages",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $env.BOT_WHATSAPP_TOKEN }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"recipient_type\": \"individual\",\n  \"to\": \"{{ $('WhatsApp Trigger').first().json.messages[0].from }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"preview_url\": false,\n    \"body\": \"🌐 Explore everything Tori offers: https://toriate.com/\"\n  }\n}",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1120,
-        8784
-      ],
-      "id": "69788972-96e7-42a9-8b6e-a0428c8cd115",
-      "name": "Booking type- msg2"
-    },
-    {
-      "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
@@ -6966,7 +6935,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Services menu (WhatsApp interactive list: max 10 rows, titles 24 chars, descriptions 72).\n// Keep the titles and IDs of the existing rows: the Switch matches \"🤝Connect-MyPerfect Match\" and\n// \"🎯Partner for an Activity\" by title, and numeric IDs go to the booking flow by title.\n// \"travel_buddy\" is caught by \"Travel button?\" before the Switch (travel matching, workflow 07).\nconst sections = [\n  { title: 'Meet people', rows: [\n    { id: 'travel_buddy', title: '🚕 Cab buddy', description: 'Share your ride with someone going the same way' },\n    { id: '2', title: '🎯Partner for an Activity', description: 'Find people to play a sport or work out with' },\n    { id: '1', title: '🤝Connect-MyPerfect Match', description: 'Meet like-minded people near you' },\n  ] },\n  { title: 'Book a slot', rows: [\n    { id: '3', title: 'Fitness & Gym 💪', description: 'Gyms, yoga studios and fitness classes' },\n    { id: '5', title: 'Racket Courts 🏟️', description: 'Badminton, pickleball, padel and coaching' },\n    { id: '6', title: 'Turf / Cricket 🏏', description: 'Football turfs and box cricket' },\n  ] },\n  { title: 'Health & recovery', rows: [\n    { id: '4', title: 'HealthCare 🩺', description: 'Hospitals, doctors and clinics' },\n    { id: '7', title: 'Physiotherapy 🦴', description: 'Sports injuries, pain relief and recovery' },\n  ] },\n];\nconst first = ($('WhatsApp Trigger').first().json.contacts?.[0]?.profile?.name || '').trim().split(/\\s+/)[0];\nreturn [{ interactive: {\n  type: 'list',\n  header: { type: 'text', text: 'Welcome to Tori ✨' },\n  body: { text: `Hi${first ? ' ' + first : ''} 👋 What can I help you with today?\\n\\n`\n    + '🚕 *Cab buddy*: find someone going your way and split the ride\\n'\n    + '🎯 *Partners*: people to play or work out with\\n'\n    + '📅 *Book*: gyms, courts, turfs and clinics near you\\n\\n'\n    + 'Or just type it, e.g. _\"Jhunsi to Civil Lines today at 6 pm\"_'\n    + ($env.BOARD_PUBLIC_URL ? '\\n\\n👀 See who\\'s looking for a partner: ' + $env.BOARD_PUBLIC_URL.replace(/\\/+$/, '') : '') },\n  footer: { text: 'Tap below to see all services' },\n  action: { button: 'Choose a service', sections },\n} }];\n"
+        "jsCode": "// Services menu (WhatsApp interactive list: max 10 rows, header 60 chars, row titles 24, descriptions 72,\n// section titles 24, button 20). Keep the titles and IDs of the existing rows: the Switch matches\n// \"🤝Connect-MyPerfect Match\" and \"🎯Partner for an Activity\" by title, and numeric IDs go to the booking\n// flow by title. Caught before the Switch: \"travel_buddy\" (Travel button?), \"menu_wallet\" (Wallet command?),\n// \"menu_toripay\" (ToriPay command?).\nconst sections = [\n  { title: 'Play & meet', rows: [\n    { id: '2', title: '🎯Partner for an Activity', description: 'Find someone to play a sport or work out with' },\n    { id: 'travel_buddy', title: '🚕 Cab buddy', description: 'Share a ride with someone going your way and split the fare' },\n    { id: '1', title: '🤝Connect-MyPerfect Match', description: 'Meet like-minded people near you' },\n  ] },\n  { title: 'Book a slot', rows: [\n    { id: '3', title: 'Fitness & Gym 💪', description: 'Gyms, yoga studios and fitness classes' },\n    { id: '5', title: 'Racket Courts 🏟️', description: 'Badminton, pickleball, padel and coaching' },\n    { id: '6', title: 'Turf / Cricket 🏏', description: 'Football turfs and box cricket' },\n  ] },\n  { title: 'Health & recovery', rows: [\n    { id: '4', title: 'HealthCare 🩺', description: 'Hospitals, doctors and clinics' },\n    { id: '7', title: 'Physiotherapy 🦴', description: 'Sports injuries, pain relief and recovery' },\n  ] },\n  { title: 'Wallet & payments', rows: [\n    { id: 'menu_wallet', title: '💳 Tori Wallet', description: 'Check your balance and add credits' },\n    { id: 'menu_toripay', title: '💸 ToriPay', description: 'Pay your gym, turf or coach from your wallet' },\n  ] },\n];\nconst first = ($('WhatsApp Trigger').first().json.contacts?.[0]?.profile?.name || '').trim().split(/\\s+/)[0];\nconst board = ($env.BOARD_PUBLIC_URL || '').replace(/\\/+$/, '');\nreturn [{ interactive: {\n  type: 'list',\n  header: { type: 'text', text: 'Welcome to Tori ✨' },\n  body: { text: `Hi${first ? ' ' + first : ''} 👋 Here's what I can do for you:\\n\\n`\n    + '🎯 *Partners*: find people to play or work out with\\n'\n    + '🚕 *Cab buddy*: share a ride and split the fare\\n'\n    + '📅 *Bookings*: gyms, courts, turfs and clinics\\n'\n    + '💳 *Tori Wallet*: add credits once, pay with one tap\\n'\n    + '💸 *ToriPay*: pay your gym or coach right here\\n\\n'\n    + 'Just type or send a voice note 🎙️ e.g.\\n'\n    + '_\"Badminton tomorrow 7 pm in HSR\"_\\n'\n    + '_\"tori pay gym 500\"_'\n    + (board ? `\\n\\n👀 *Open games near you*, join with a tap:\\n${board}` : '') },\n  footer: { text: 'Tori · toriate.com' },\n  action: { button: 'View services', sections },\n} }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -8131,7 +8100,7 @@
           "conditions": [
             {
               "id": "b5e596f9-2e23-5a1d-be36-e36ab6a137af",
-              "leftValue": "={{ !!$env.TORI_GOOGLE_URL && (($json.messages?.[0]?.interactive?.button_reply?.id || $json.messages?.[0]?.interactive?.list_reply?.id || '').startsWith('gg_') || !!($json.messages?.[0]?.image || $json.messages?.[0]?.document || $json.messages?.[0]?.video) || ($json.messages?.[0]?.type === 'text' && !/^\\s*(hi+|hello|hey|menu|start)\\W*$/i.test($json.messages[0].text?.body ?? '') && ($json.messages[0].text?.body ?? '').trim() !== '20' && !/^\\s*book\\s+/i.test($json.messages[0].text?.body ?? ''))) }}",
+              "leftValue": "={{ !!$env.TORI_GOOGLE_URL && (($json.messages?.[0]?.interactive?.button_reply?.id || $json.messages?.[0]?.interactive?.list_reply?.id || '').startsWith('gg_') || !!($json.messages?.[0]?.image || $json.messages?.[0]?.document || $json.messages?.[0]?.video) || ($json.messages?.[0]?.type === 'text' && !/^\\s*(hi+|hello|hey|menu|start)\\W*$/i.test($json.messages[0].text?.body ?? '') && ($json.messages[0].text?.body ?? '').trim() !== '20' && !/^\\s*book\\s+/i.test($json.messages[0].text?.body ?? '') && !/^\\s*(tori\\s?pay|toripay|my\\s+payees|join\\s+[a-z0-9]{4,8}|add\\s+(credits?|money|balance)|top[\\s-]?up|recharge|(my\\s+|tori\\s+)?wallet|balance|credits?)\\b/i.test($json.messages[0].text?.body ?? '') && !/^\\s*[a-z0-9]+(\\s[a-z0-9]+)?\\s+edit\\s*$|^\\s*edit\\s+[a-z0-9]+(\\s[a-z0-9]+)?\\s*$/i.test($json.messages[0].text?.body ?? '') && !$('Log inbound message').first().json.res?.toripay_step)) }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -9608,7 +9577,7 @@
           "conditions": [
             {
               "id": "89982cc8-9727-5914-88f3-8c1c32b3f55a",
-              "leftValue": "={{ /^\\s*(add\\s+(credits?|money|balance)|top[\\s-]?up|recharge|(my\\s+|tori\\s+)?wallet|balance|credits?)\\s*[.!?]*\\s*$/i.test($json.messages?.[0]?.text?.body || '') || (($json.messages?.[0]?.interactive?.button_reply?.id) || '').startsWith('wp_') || ($env.WALLET_DEMO === '1' && /^\\s*test\\s+booking\\s+\\d{1,5}\\s*$/i.test($json.messages?.[0]?.text?.body || '')) }}",
+              "leftValue": "={{ /^\\s*(add\\s+(credits?|money|balance)|top[\\s-]?up|recharge|(my\\s+|tori\\s+)?wallet|balance|credits?)\\s*[.!?]*\\s*$/i.test($json.messages?.[0]?.text?.body || '') || (($json.messages?.[0]?.interactive?.button_reply?.id) || '').startsWith('wp_') || $json.messages?.[0]?.interactive?.list_reply?.id === 'menu_wallet' || ($env.WALLET_DEMO === '1' && /^\\s*test\\s+booking\\s+\\d{1,5}\\s*$/i.test($json.messages?.[0]?.text?.body || '')) }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -10026,6 +9995,261 @@
     },
     {
       "parameters": {
+        "content": "## ToriPay\nSQL: db/migrations/013_payees*.sql · payouts: web/src/lib/payout.ts\n\n- `tori pay gym 500` → **ToriPay** (toripay_bot) → confirm buttons `tp_yes_` / `tp_no_`\n- unknown business → add it: each answer → **Answer via web** (`/api/toripay/answer`, bank details → RazorpayX)\n- several businesses → a list `tps_…`; `gym edit` → a list `tpe_…`; `my payees`\n- paid → **Send payout** (web app, RazorpayX) and a note to the owner",
+        "height": 220,
+        "width": 620,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1504,
+        20484
+      ],
+      "id": "f665141a-55d4-5f96-b1a3-5cbd1516625a",
+      "name": "ToriPay (about)"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2eaa108e-1439-536d-aba8-231caba72be4",
+              "leftValue": "={{ /^\\s*(tori\\s?pay|toripay)\\b/i.test($json.messages?.[0]?.text?.body || '') || /^\\s*my\\s+payees\\s*[.!?]*\\s*$/i.test($json.messages?.[0]?.text?.body || '') || (new RegExp(\"^(edit\\\\s+[a-z0-9]+(\\\\s[a-z0-9]+)?|[a-z0-9]+(\\\\s[a-z0-9]+)?\\\\s+edit)$\", 'i').test(($json.messages?.[0]?.text?.body || '').trim().replace(/\\s+/g, ' ')) && !/^(edit\\s+)?(my\\s+)?(profile|name|age|about|bio|photo|request)(\\s+edit)?$/i.test(($json.messages?.[0]?.text?.body || '').trim())) || $json.messages?.[0]?.interactive?.list_reply?.id === 'menu_toripay' || (!!$('Log inbound message').first().json.res?.toripay_step && $json.messages?.[0]?.type === 'text' && !/^\\s*(hi+|hello|hey|menu|start)\\W*$/i.test($json.messages?.[0]?.text?.body || '')) || /^tp(s|e|a)?_/.test($json.messages?.[0]?.interactive?.button_reply?.id || $json.messages?.[0]?.interactive?.list_reply?.id || '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        9712
+      ],
+      "id": "cd4d1325-05c4-5abe-a3d0-5a0c078943e4",
+      "name": "ToriPay command?"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const msg = $json.messages[0];\nconst base = { wa: msg.from, name: ($json.contacts?.[0]?.profile?.name || '').trim() };\nconst out = (p) => ({ json: { ...base, p } });\nconst id = msg.interactive?.button_reply?.id || msg.interactive?.list_reply?.id || '';\nlet m;\nif ((m = id.match(/^tp_(yes|no)_([0-9a-f-]{36})$/))) return out({ action: m[1] === 'yes' ? 'confirm' : 'cancel', payment_id: m[2] });\nif ((m = id.match(/^tps_([0-9a-f-]{36})_(\\d+)_(.*)$/))) return out({ action: 'pick', payee_id: m[1], amount_paise: Number(m[2]), nickname: m[3] });\nif ((m = id.match(/^tpe_([0-9a-f-]{36})_(.*)$/))) return out({ action: 'edit_pick', payee_id: m[1], nickname: m[2] });\nif ((m = id.match(/^tpa_new_(\\d+)_(.*)$/))) return out({ action: 'add', amount_paise: Number(m[1]) || null, nickname: m[2] });\nif ((m = id.match(/^tpa_fix_(.*)$/))) return out({ action: 'add', nickname: m[1], fix: true });\n\nconst t = (msg.text?.body || '').trim().replace(/\\s+/g, ' ').replace(/[.!?]+$/, '');\nconst rest = t.replace(/^(tori ?pay|toripay)\\b ?/i, '');\n// adding a payee: every answer goes to the web app (POST /api/toripay/answer), which owns the bank details\nif (!id && rest === t && $('Log inbound message').first().json.res?.toripay_step) return out({ action: 'answer', text: t });\nif ((m = rest.match(/^(?:add|new)(?: payee)? (.+)$/i) || t.match(/^add payee (.+)$/i))) return out({ action: 'add', nickname: m[1] });\nif (/^(|list|my payees|payees|shortcuts|help)$/i.test(rest)) return out({ action: 'list' });\nif ((m = rest.match(/^(?:remove|delete|forget) (.+)$/i))) return out({ action: 'remove', word: m[1] });\nif ((m = rest.match(/^edit (.+)$/i) || rest.match(/^(.+?) edit$/i))) return out({ action: 'edit', word: m[1] });\n// \"gym 500\", \"gym ₹500\", \"gym rs 1,500\", \"500 to gym\"\nconst NUM = String.raw`(?:₹|rs\\.?|inr)? ?(\\d[\\d,]*(?:\\.\\d{1,2})?) ?(?:rs\\.?|rupees|inr|\\/-)?`;\nlet word = rest, num = null;\nif ((m = rest.match(new RegExp('^(.+?) ' + NUM + '$', 'i')))) { word = m[1]; num = m[2]; }\nelse if ((m = rest.match(new RegExp('^' + NUM + ' (?:to )?(.+)$', 'i')))) { num = m[1]; word = m[2]; }\nword = word.replace(/^to /i, '').trim();\nconst amount = num ? Math.round(parseFloat(num.replace(/,/g, '')) * 100) : null;\nreturn out({ action: 'pay', word, amount_paise: Number.isFinite(amount) ? amount : null });\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1504,
+        20784
+      ],
+      "id": "70cb9751-c703-5ee4-8c60-35ac4d8ba18a",
+      "name": "Read toripay input"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.toripay_bot($1, nullif($2, ''), $3::jsonb) AS r, $1 AS \"to\";",
+        "options": {
+          "queryReplacement": "={{ [ $json.wa, $json.name || '', JSON.stringify($json.p) ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1244,
+        20784
+      ],
+      "id": "4f3b98c8-1523-5fb6-8eca-cf65d88b1850",
+      "name": "ToriPay",
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f645e1b7-49d4-5421-9e35-7970dbb15bf5",
+              "leftValue": "={{ $json.p?.action === 'answer' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1244,
+        21184
+      ],
+      "id": "8d2dd2ed-16f5-5c5f-8503-00ea80231d76",
+      "name": "Draft answer?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.TORI_WEB_URL || 'http://web:3000').replace(/\\/+$/, '') }}/api/toripay/answer",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-tori-key",
+              "value": "={{ $env.WALLET_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ wa_id: $json.wa, text: $json.p.text }) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -984,
+        21184
+      ],
+      "id": "97dd9a1b-f3d8-5655-beaa-5d66794ec140",
+      "name": "Answer via web",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $json && typeof $json.kind === 'string' ? $json : { kind: 'add_error' };\nreturn [{ json: { r, to: $('Read toripay input').first().json.wa } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -724,
+        21184
+      ],
+      "id": "d8826f94-5597-5226-a9a1-04a0f6c42380",
+      "name": "Web answer"
+    },
+    {
+      "parameters": {
+        "jsCode": "const BOARD = ($env.BOARD_PUBLIC_URL || '').replace(/\\/+$/, '');\nconst rs = (p) => '₹' + (Number(p || 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });\nconst link = (l) => (BOARD && l && l.token ? `${BOARD}/wallet/login?t=${l.token}` : null);\nconst textBody = (t) => ({ type: 'text', text: { preview_url: false, body: t } });\n// the payment request: one tap to pay, or a link to add credits first\nconst chargeBody = (c, l) => {\n  const url = link(l);\n  const head = `💳 *${c.description}*\\nAmount: *${rs(c.amount_paise)}*`;\n  if (!['pending'].includes(c.status)) return textBody(`${head}\\n\\nThis payment is ${c.status} already.`);\n  const text = c.enough\n    ? `${head}\\nFrom your Tori Wallet: ${rs(c.balance_paise)} → ${rs(c.balance_paise - c.amount_paise)} after.\\n\\nOne tap and it's paid 👇`\n    : `${head}\\nYour Tori Wallet has ${rs(c.balance_paise)}: add ${rs(c.amount_paise - c.balance_paise)} or more`\n      + (url ? ` here 👉 ${url}` : '') + `\\n\\nThen tap *Pay* 👇`;\n  return { type: 'interactive', interactive: { type: 'button', body: { text },\n    action: { buttons: [ { type: 'reply', reply: { id: 'wp_yes_' + c.charge_id, title: `Pay ${rs(c.amount_paise)}`.slice(0, 20) } },\n                         { type: 'reply', reply: { id: 'wp_no_' + c.charge_id, title: 'Cancel' } } ] } } };\n};\n\nconst r = $json.r || {};\nconst to = $json.to;\nconst out = [];\nconst say = (t) => out.push({ json: { to, body: textBody(t) } });\nconst label = (p) => (p ? `*${p.name}*${p.area ? ' (' + p.area + ')' : ''}` : '');\nconst bank = (p) => `${p.bank} ••${p.last4} · ${p.verified_name}${p.self_added ? ' _(added by you)_' : ''}`;\nconst amt = (p) => Number(p || 0) / 100;\nconst HOW = 'Say *tori pay gym 500*: Tori finds your gym, you tap *Pay*, and it comes straight from your Tori Wallet.';\nconst list = (text, button, rows) => out.push({ json: { to, body: { type: 'interactive', interactive: { type: 'list', body: { text },\n  action: { button, sections: [{ title: 'Verified on Tori', rows }] } } } } });\nconst row = (p, id) => ({ id, title: p.name.slice(0, 24),\n  description: [p.area, p.city, `${p.bank} ••${p.last4}`].filter(Boolean).join(' · ').slice(0, 72) });\n\n// adding a payee, one question at a time (the web app checks the answers)\nconst STEP = {\n  name: () => (r.fixing\n    ? `Let's update your *${r.nickname}* ✏️\\n\\nWhat's it called? (now *${r.display_name}*: say *same* to keep it)`\n    : `I don't have your *${r.nickname}* yet, so let's add it 🙌 It takes a minute, and only once.\\n\\nWhat's it called? _(e.g. FitZone Gym, HSR)_`)\n    + `\\n\\n_Say *cancel* any time to stop._`,\n  ifsc: () => `*${r.display_name}* 👍\\n\\nWhat's their bank's *IFSC code*? 11 characters, like _HDFC0001234_. `\n    + `${r.display_name} can tell you; it's also on their cheque book.`,\n  holder: () => `🏦 ${r.bank_name || r.ifsc}${r.branch ? ', ' + r.branch : ''}\\n\\nThe *account holder's name*, as the bank has it?`,\n  account: () => `And the *account number*? 🔒\\nIt goes straight to Razorpay, our payment partner. Tori keeps only the last 4 digits.`,\n  account_confirm: () => `Please type the account number *once more*, so we know it's right.`,\n};\nconst ERR = {\n  name: 'Please send the name (2 to 60 characters).',\n  ifsc: \"That doesn't look like an IFSC code: 4 letters, a 0, then 6 letters or numbers (e.g. HDFC0001234).\",\n  ifsc_unknown: \"I couldn't find that IFSC code. Please check it with them.\",\n  holder: 'Please send the account holder\\'s name in letters.',\n  account: 'An account number has 9 to 18 digits.',\n  mismatch: \"Those two numbers don't match, so let's try once more.\",\n  bank: \"The bank didn't accept those details.\",\n  step: '',\n};\nconst saved = (p) => `✅ Saved *${p.name}* as your *${r.nickname}*\\n🏦 ${bank(p)}`;\n\nif (r.kind === 'add_step') {\n  say((r.error && ERR[r.error] ? `⚠️ ${ERR[r.error]}${r.detail ? ` (${r.detail})` : ''}\\n\\n` : '') + (STEP[r.step] || STEP.name)());\n} else if (r.kind === 'added') {\n  say(saved(r.payee) + `\\n\\nPay any time: *tori pay ${r.nickname} 500*\\nChange it: *${r.nickname} edit*`);\n} else if (r.kind === 'add_cancelled') {\n  say(`Okay, stopped. Nothing was saved 👍`);\n} else if (r.kind === 'add_gone') {\n  say(`That took a while, so I stopped. Say *tori pay gym 500* to start again.`);\n} else if (r.kind === 'add_failed') {\n  say(`Adding a new payee isn't available right now 🙏 Please try again later.`);\n} else if (r.kind === 'add_error') {\n  say(`Sorry, something went wrong there. Please send that again 🙏`);\n} else if (r.kind === 'confirm') {\n  const p = r.payee;\n  if (r.added) say(saved(p));\n  const url = link(r.link);\n  const head = `💸 Pay ${label(p)}\\n🏦 ${bank(p)}\\nAmount: *${rs(r.amount_paise)}*`;\n  const text = r.enough\n    ? `${head}\\nFrom your Tori Wallet: ${rs(r.balance_paise)} → ${rs(r.balance_paise - r.amount_paise)} after.\\n\\nOne tap and it's paid 👇`\n    : `${head}\\nYour Tori Wallet has ${rs(r.balance_paise)}: add ${rs(r.amount_paise - r.balance_paise)} or more`\n      + (url ? ` here 👉 ${url}` : '') + `\\n\\nThen tap *Pay* 👇 (this works for 15 minutes)`;\n  out.push({ json: { to, body: { type: 'interactive', interactive: { type: 'button', body: { text },\n    action: { buttons: [ { type: 'reply', reply: { id: 'tp_yes_' + r.payment_id, title: `Pay ${rs(r.amount_paise)}`.slice(0, 20) } },\n                         { type: 'reply', reply: { id: 'tp_no_' + r.payment_id, title: 'Cancel' } } ] } } } } });\n} else if (r.kind === 'choose') {\n  list(`Which one do you want to pay ${rs(r.amount_paise)}?`, 'Choose',\n       (r.options || []).slice(0, 9).map((p) => row(p, `tps_${p.payee_id}_${r.amount_paise}_${r.nickname || ''}`.slice(0, 200)))\n         .concat([{ id: `tpa_new_${r.amount_paise}_${r.nickname || 'payee'}`.slice(0, 200), title: '➕ Someone else',\n                    description: 'Not in the list? Add them with their bank details' }]));\n} else if (r.kind === 'need_amount') {\n  say(`How much? Say *tori pay ${r.word || 'gym'} 500*` + (r.payee ? ` to pay ${label(r.payee)}.` : '.'));\n} else if (r.kind === 'none') {\n  const mine = (r.shortcuts || []).map((s) => s.nickname);\n  say(`I couldn't find *${r.word || '…'}* among the businesses on ToriPay yet.`\n      + (mine.length ? `\\nYour shortcuts: ${mine.map((n) => '*' + n + '*').join(', ')}` : '')\n      + `\\n\\nOnly gyms, turfs and coaches verified by the Tori team can be paid. Ask yours to get in touch with Tori 🙌`);\n} else if (r.kind === 'bad_amount') {\n  say(`The amount has to be between ₹1 and ${rs(r.max_paise)}.`);\n} else if (r.kind === 'unavailable') {\n  say(`That business can't take Tori payments right now.`);\n} else if (r.kind === 'confirmed') {\n  const url = link(r.link);\n  if (r.state === 'paid') {\n    say(`✅ Paid ${rs(r.amount_paise)} to ${label(r.payee)} from your Tori Wallet.\\nBalance: ${rs(r.balance_paise)}`\n        + (r.nickname ? `\\n\\nNext time just say *tori pay ${r.nickname} ${amt(r.amount_paise)}*` : ''));\n    if (r.owner_wa) {\n      out.push({ json: { to: r.owner_wa, body: textBody(`💰 ${r.payer_name || 'A Tori member'} paid ${rs(r.amount_paise)} to ${r.payee.name} with ToriPay.`\n        + (r.net_paise !== r.amount_paise ? ` ${rs(r.net_paise)} comes to you after Tori's fee.` : '')\n        + ` It goes to your bank account ••${r.payee.last4}.`) } });\n    }\n  } else {\n    say({\n      already_paid: `Already paid ✅ Balance: ${rs(r.balance_paise)}`,\n      insufficient: `Your wallet has ${rs(r.balance_paise)}: ${rs(r.short_paise)} short.`\n        + (url ? `\\n\\nAdd credits 👉 ${url}\\nThen tap *Pay* again on the message above.` : ''),\n      expired: `This payment request has expired. Say *tori pay …* again 🙏`,\n      cancelled: `This payment was cancelled.`,\n      unavailable: `${r.payee?.name || 'That business'} can't take Tori payments right now. Nothing was taken from your wallet.`,\n      failed: `This payment didn't go through and the money is back in your wallet.`,\n    }[r.state] || \"This payment isn't available any more.\");\n  }\n} else if (r.kind === 'cancelled') {\n  say(r.state === 'cancelled' ? `Okay, cancelled: nothing was taken from your wallet 👍` : `There's nothing to cancel.`);\n} else if (r.kind === 'edit') {\n  if (!r.nickname) say(`Shortcut names can be letters and numbers only, like *gym* or *my coach*.`);\n  else {\n    const own = r.current?.self_added;\n    const rows = (r.options || []).filter((p) => p.payee_id !== r.current?.payee_id).slice(0, own ? 8 : 9)\n      .map((p) => row(p, `tpe_${p.payee_id}_${r.nickname}`));\n    if (own) rows.unshift({ id: `tpa_fix_${r.nickname}`, title: '✏️ Change bank details', description: `New account for ${r.current.name}`.slice(0, 72) });\n    rows.push({ id: `tpa_new_0_${r.nickname}`, title: '➕ Someone else', description: 'Add a different one with their bank details' });\n    list((r.current ? `*${r.nickname}* pays ${label(r.current)} now.\\n🏦 ${bank(r.current)}\\n\\n` : '') + `What would you like to change?`, 'Choose', rows);\n  }\n} else if (r.kind === 'saved') {\n  say(r.state === 'saved' ? `👍 *${r.nickname}* now pays ${label(r.payee)}.\\nSay *tori pay ${r.nickname} 500* to pay.` : `I couldn't save that shortcut.`);\n} else if (r.kind === 'removed' || r.kind === 'not_found') {\n  say(r.kind === 'removed' ? `Removed the *${r.word}* shortcut 👍` : `You don't have a shortcut called *${r.word}*.`);\n} else {\n  const s = r.shortcuts || [];\n  say(`💸 *ToriPay*: wallet ${rs(r.balance_paise)}\\n\\n`\n      + (s.length ? `Your shortcuts:\\n${s.map((x) => `• *${x.nickname}* → ${label(x)}`).join('\\n')}\\n\\n`\n                    + `Pay: *tori pay ${s[0].nickname} 500*\\nChange one: *${s[0].nickname} edit* · Remove: *tori pay remove ${s[0].nickname}*`\n                  : HOW));\n}\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -984,
+        20684
+      ],
+      "id": "c97588d2-47bf-5311-ac78-58493b9ec4a3",
+      "name": "ToriPay reply"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f628ab47-0530-5140-9876-c8080cab1209",
+              "leftValue": "={{ $json.r?.kind === 'confirmed' && $json.r?.state === 'paid' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -984,
+        20934
+      ],
+      "id": "c19566c4-6939-5fe5-8b56-041f94dc4b1c",
+      "name": "ToriPay paid?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.TORI_WEB_URL || 'http://web:3000').replace(/\\/+$/, '') }}/api/payouts/execute",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-tori-key",
+              "value": "={{ $env.WALLET_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ payment_id: $json.r.payment_id }) }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -724,
+        20934
+      ],
+      "id": "f033f14e-8f92-52e2-ae12-3f1bb3af7edd",
+      "name": "Send payout",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
         "content": "## Held messages\nSQL: db/migrations/008_held_messages*.sql\n\n- WhatsApp only allows replies within 24 h of the user's last message (else a template)\n- Offers / updates for people outside it are kept (**Hold offer**, **Hold update**)\n- **Take held messages** sends them on the person's next message; \"any match?\" re-sends open offers\n- Set PARTNER_MATCH_TEMPLATE to an approved template name to send offers right away instead",
         "height": 260,
         "width": 620,
@@ -10037,7 +10261,7 @@
         -1504,
         17384
       ],
-      "id": "f665141a-55d4-5f96-b1a3-5cbd1516625a",
+      "id": "f0e71b39-0a85-5ee1-a41d-d1b9e88a4f57",
       "name": "Held messages (about)"
     },
     {
@@ -10054,7 +10278,7 @@
         600,
         7432
       ],
-      "id": "2eaa108e-1439-536d-aba8-231caba72be4",
+      "id": "b80019f9-ab60-5af7-958a-316a5f4edecd",
       "name": "Take held messages",
       "credentials": {
         "postgres": {
@@ -10074,7 +10298,7 @@
         840,
         7432
       ],
-      "id": "cd4d1325-05c4-5abe-a3d0-5a0c078943e4",
+      "id": "538021ff-d76e-5525-b8bf-8b3133ea7aa0",
       "name": "Held to send"
     },
     {
@@ -10102,7 +10326,7 @@
         1080,
         7432
       ],
-      "id": "70cb9751-c703-5ee4-8c60-35ac4d8ba18a",
+      "id": "97a2f7bd-0c63-5375-b62c-df5ec74ee608",
       "name": "Send held message",
       "credentials": {
         "httpHeaderAuth": {
@@ -10126,7 +10350,7 @@
         -204,
         17684
       ],
-      "id": "4f3b98c8-1523-5fb6-8eca-cf65d88b1850",
+      "id": "438e34c7-89b4-5fca-9f62-833216a4a061",
       "name": "Partner status",
       "credentials": {
         "postgres": {
@@ -10146,7 +10370,7 @@
         56,
         17684
       ],
-      "id": "f645e1b7-49d4-5421-9e35-7970dbb15bf5",
+      "id": "bde9e062-fdee-55fe-99db-0e2dbb731c9f",
       "name": "Build status reply"
     }
   ],
@@ -11598,7 +11822,7 @@
       "main": [
         [
           {
-            "node": "Booking type- msg2",
+            "node": "Save user interaction-1a",
             "type": "main",
             "index": 0
           }
@@ -12004,17 +12228,6 @@
         [
           {
             "node": "Reminder tenant",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Booking type- msg2": {
-      "main": [
-        [
-          {
-            "node": "Save user interaction-1a",
             "type": "main",
             "index": 0
           }
@@ -13311,7 +13524,7 @@
         ],
         [
           {
-            "node": "Profile input?",
+            "node": "ToriPay command?",
             "type": "main",
             "index": 0
           }
@@ -13538,6 +13751,113 @@
         [
           {
             "node": "Send prepared message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ToriPay command?": {
+      "main": [
+        [
+          {
+            "node": "Read toripay input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Profile input?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read toripay input": {
+      "main": [
+        [
+          {
+            "node": "Draft answer?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft answer?": {
+      "main": [
+        [
+          {
+            "node": "Answer via web",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ToriPay",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer via web": {
+      "main": [
+        [
+          {
+            "node": "Web answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Web answer": {
+      "main": [
+        [
+          {
+            "node": "ToriPay reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ToriPay": {
+      "main": [
+        [
+          {
+            "node": "ToriPay reply",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "ToriPay paid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ToriPay reply": {
+      "main": [
+        [
+          {
+            "node": "Send prepared message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ToriPay paid?": {
+      "main": [
+        [
+          {
+            "node": "Send payout",
             "type": "main",
             "index": 0
           }

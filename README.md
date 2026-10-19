@@ -266,6 +266,55 @@ balance can never go below 0 ([012_wallet.sql](db/migrations/012_wallet.sql), `0
     capture, credited once, webhook-only, tampering);
   - scenario 9 of `scripts/profile_e2e.py`: WhatsApp link, charge webhook, Pay / Cancel, demo.
 
+### ToriPay (pay a gym, turf or coach from the wallet)
+
+"tori pay gym 500" pays a business straight from the Tori Wallet
+([013_payees.sql](db/migrations/013_payees.sql), `013_payees.repeatable.sql`).
+
+- **Who can be paid:** businesses the Tori team verified and added with their bank details
+  (`scripts/payee.sh add payee.json`, i.e. `POST /api/admin/payees` with `x-tori-admin: $TORI_ADMIN_KEY`).
+  The full account number goes to RazorpayX once and is never stored: Tori keeps the IFSC, the last 4
+  digits and the account holder's name. Only the team can change where a business is paid.
+- **Paying:**
+  1. "tori pay gym 500" (or "toripay fitzone ₹500", "tori pay 500 to gym", or a voice note).
+  2. Tori looks for the person's shortcut "gym"; without one it searches the verified businesses and
+     shows a list when several match.
+  3. **[Pay ₹500] [Cancel]**, with the business's name, bank and last 4 digits. Not enough credits → an
+     add-credits link in the same message. The request is valid 15 minutes.
+  4. One tap: the wallet is charged, "gym" becomes a shortcut to that business, the owner gets a WhatsApp
+     message, and the web app sends the payout.
+- **Adding your own** ([014_own_payees.sql](db/migrations/014_own_payees.sql)): when Tori doesn't know the
+  business ("tori pay coach 300"), or from "➕ Someone else" in a list, the bot asks one question at a time:
+  1. the name;
+  2. the IFSC (looked up in Razorpay's IFSC directory, which shows the bank and branch);
+  3. the account holder's name;
+  4. the account number, twice.
+
+  Each answer goes to `POST /api/toripay/answer` on the web app (bot key). On the second number the web app
+  creates the RazorpayX fund account, saves the payee and the shortcut, and shows [Pay ₹300].
+  - The account number is not stored in any Tori table: the draft keeps a hash to compare the two entries,
+    and the message log says "[bank account number]". Those messages skip the ToriGoogle hand-off.
+  - A payee someone added is private to them: not in search, and nobody else can pay it or save it.
+    The confirm message marks it "added by you".
+  - "coach edit" → **✏️ Change bank details** (the same questions again) or **➕ Someone else**.
+    "cancel" stops at any step.
+- **Shortcuts:** several per person. "gym edit" points "gym" at another business, "my payees" lists them,
+  "tori pay remove gym" deletes one.
+- **Payouts** (`web/src/lib/payout.ts`):
+  - With `RAZORPAYX_ACCOUNT_NUMBER` set, a RazorpayX payout (IMPS) goes out at once, with the payment as
+    its idempotency key. `POST /api/razorpayx/webhook`: `payout.processed` settles it,
+    `payout.failed` / `reversed` / `rejected` refunds the person in full and tells them on WhatsApp.
+  - Without it (RazorpayX payouts not activated yet), payments stay **owed** in the ledger.
+    `scripts/payee.sh owed` lists what each business is owed; after paying it by bank transfer,
+    `scripts/payee.sh settle <handle> <UTR>`.
+- **Commission:** `commission_bps` per business (0 by default; 200 = 2 %), kept in `tori:revenue`.
+- **Tests:**
+  - `db/tests/toripay.sql` (63 checks);
+  - `scripts/wallet-e2e.sh` adds 24 HTTP checks: admin key, account number not kept, payout once, webhooks,
+    refund, RazorpayX down, owed and settled;
+  - scenarios 10–11 of `scripts/profile_e2e.py` run the WhatsApp conversations (the harness runs the real
+    web app against fake Razorpay and a fake IFSC directory).
+
 ### People outside WhatsApp's 24-hour window
 
 WhatsApp only lets the bot message someone within 24 hours of their last message; after that only an

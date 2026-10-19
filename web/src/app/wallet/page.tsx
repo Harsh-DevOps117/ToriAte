@@ -12,6 +12,8 @@ const KIND = {
   charge: { label: 'Paid', icon: ArrowUpRight },
   refund: { label: 'Refund', icon: RotateCcw },
   adjustment: { label: 'Adjustment', icon: RotateCcw },
+  payee_payment: { label: 'ToriPay', icon: ArrowUpRight },
+  payout_reversal: { label: 'ToriPay refund', icon: RotateCcw },
 } as const;
 
 function when(iso: string) {
@@ -82,7 +84,7 @@ export default async function WalletPage({ searchParams }: { searchParams: Promi
                       <Icon className="size-4 text-ink" aria-hidden />
                     </span>
                     <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-label font-medium text-ink">{h.kind === 'charge' ? h.memo : k.label}</span>
+                      <span className="truncate text-label font-medium text-ink">{h.kind === 'charge' || h.kind === 'payee_payment' || h.kind === 'payout_reversal' ? h.memo : k.label}</span>
                       <span className="text-caption text-muted">{when(h.at)}{h.kind === 'topup' && h.ref ? ` · ${h.ref}` : ''}</span>
                     </div>
                     <span className={`shrink-0 text-label font-medium ${h.amount_paise > 0 ? 'text-success' : 'text-ink'}`}>

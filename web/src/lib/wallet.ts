@@ -3,7 +3,7 @@ import { rpc } from './db';
 
 export const SESSION_COOKIE = 'tori_wallet';
 export type WalletUser = { user_id: string; name: string | null; phone: string; contact: string; balance_paise: number };
-export type WalletRow = { at: string; kind: 'topup' | 'charge' | 'refund' | 'adjustment'; amount_paise: number; memo: string; ref: string };
+export type WalletRow = { at: string; kind: 'topup' | 'charge' | 'refund' | 'adjustment' | 'payee_payment' | 'payout_reversal'; amount_paise: number; memo: string; ref: string };
 
 // The logged-in person (from the session cookie set by /wallet/login), or null
 export async function currentUser(): Promise<WalletUser | null> {
