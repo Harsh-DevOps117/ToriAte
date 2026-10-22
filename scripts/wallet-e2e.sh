@@ -39,7 +39,7 @@ for f in $(ls db/migrations/*.sql | grep -v '\.repeatable\.sql$') db/migrations/
   docker exec -i "$PG" psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 --single-transaction < "$f" >/dev/null 2>&1 \
     || { echo "migration failed: $f"; exit 1; }
 done
-for t in wallet toripay; do
+for t in wallet toripay referrals; do
   echo "── SQL scenarios (db/tests/$t.sql)"
   docker exec -i "$PG" psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/$t.sql 2>&1 | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
 done

@@ -13,7 +13,10 @@ LANGUAGE sql STABLE AS $$
            'wallet_max_balance_paise', 1000000,   -- ₹10,000
            'wallet_charge_minutes', 30,           -- a one-tap payment request is valid this long
            'wallet_link_minutes', 15,             -- the WhatsApp "add credits" link
-           'wallet_session_days', 30)
+           'wallet_session_days', 30,
+           'wallet_referral_bonus_paise', 3000,   -- 30 credits each, for the friend and for who invited them (016)
+           'wallet_referral_days', 7,             -- a code works within this many days of first messaging Tori
+           'wallet_referral_max', 50)             -- friends one person can earn a bonus for
          || coalesce((SELECT jsonb_object_agg(key, value) FROM public.tori_settings WHERE key LIKE 'wallet\_%'), '{}');
 $$;
 

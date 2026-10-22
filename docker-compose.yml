@@ -36,6 +36,8 @@ x-n8n-env: &n8n-env
   TORI_GOOGLE_SECRET: ${TORI_GOOGLE_SECRET:-}
   # partner board's public address (scripts/board-tunnel.sh); the bot links to it when set
   BOARD_PUBLIC_URL: ${BOARD_PUBLIC_URL:-}
+  # the bot's own WhatsApp number (digits): invite links ("invite") open a chat with it
+  BOARD_WHATSAPP_NUMBER: ${BOARD_WHATSAPP_NUMBER:-}
   # approved template for match offers outside the 24-hour window; empty = keep them until the user writes
   PARTNER_MATCH_TEMPLATE: ${PARTNER_MATCH_TEMPLATE:-}
   # voice notes ("about you"): Whisper endpoint and model; empty = Groq whisper-large-v3-turbo with the LLM key

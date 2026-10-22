@@ -118,6 +118,10 @@ PG = ('n8n-nodes-base.postgres', 2.6)
 CODE = ('n8n-nodes-base.code', 2)
 IF = ('n8n-nodes-base.if', 2.2)
 SEND = dict(credentials=CRED_WHATSAPP, onError='continueRegularOutput')
+# Referrals (section 17): an invite code anywhere in a message (codes have no 0/O/1/I/L), or asking for one
+REF_CODE = r"/\btori-[a-hjkmnp-z2-9]{6}\b/i"
+REF_CMD = (r"/^\s*(my\s+)?((invite|referral|refer)(\s+code|s)?|(refer|invite)(\s+(a|my))?\s+friends?|"
+           r"(earn|free|get)\s+(free\s+)?credits?)\s*[.!?]*\s*$/i")
 
 # ── Canvas: the partner block goes below everything that exists ───────────────────────────────
 X0 = min(n['position'][0] for n in wf['nodes'])
@@ -787,7 +791,8 @@ return [{ interactive: {
     + '🚕 *Cab buddy*: share a ride and split the fare\n'
     + '📅 *Bookings*: gyms, courts, turfs and clinics\n'
     + '💳 *Tori Wallet*: add credits once, pay with one tap\n'
-    + '💸 *ToriPay*: pay your gym or coach right here\n\n'
+    + '💸 *ToriPay*: pay your gym or coach right here\n'
+    + '🎁 *Invite friends*: you both get free credits, send *invite*\n\n'
     + 'Just type or send a voice note 🎙️ e.g.\n'
     + '_"Badminton tomorrow 7 pm in HSR"_\n'
     + '_"tori pay gym 500"_'
@@ -854,6 +859,7 @@ add('Google?', *IF, bool_if(
     "!/^\\s*(tori\\s?pay|toripay|my\\s+payees|join\\s+[a-z0-9]{4,8}|add\\s+(credits?|money|balance)|top[\\s-]?up|recharge|(my\\s+|tori\\s+)?wallet|balance|credits?)\\b/i"
     ".test($json.messages[0].text?.body ?? '') && "
     "!/^\\s*[a-z0-9]+(\\s[a-z0-9]+)?\\s+edit\\s*$|^\\s*edit\\s+[a-z0-9]+(\\s[a-z0-9]+)?\\s*$/i.test($json.messages[0].text?.body ?? '') && "
+    "!" + REF_CODE + ".test($json.messages[0].text?.body ?? '') && !" + REF_CMD + ".test($json.messages[0].text?.body ?? '') && "
     "!$('Log inbound message').first().json.res?.toripay_step))"),
     [trig['position'][0], trig['position'][1] + 780])
 unlink('WhatsApp Trigger', 'Travel button?')
@@ -1471,7 +1477,8 @@ add('Wallet link reply', *CODE, code(r"""
 const url = link($json.l);
 const t = `💳 *Tori Wallet*: ${rs($json.l.balance_paise)} (${Number($json.l.balance_paise) / 100} credits)\n\n`
   + (url ? `Add credits here 👉 ${url}\n_(this link works once, for 15 minutes)_` : "The wallet page isn't online right now. Please try again later 🙏")
-  + `\n\nWhen you book with Tori, just tap *Pay*: it comes straight from your wallet, no payment page.`;
+  + `\n\nWhen you book with Tori, just tap *Pay*: it comes straight from your wallet, no payment page.`
+  + `\n\n🎁 Free credits: invite a friend and you both get some. Send *invite*`;
 return [{ json: { to: $json.to, body: textBody(t) } }];
 """), [col(3), YW - 300])
 link('Wallet link', 'Wallet link reply')
@@ -1789,6 +1796,114 @@ add('Send payout', *HTTP, {
     'options': {'timeout': 20000, 'response': {'response': {'fullResponse': True, 'neverError': True}}},
 }, [col(3), YT + 150], onError='continueRegularOutput')
 link('ToriPay paid?', 'Send payout', 0)
+
+# ── 17. Referrals: invite a friend, both get 30 credits (db/migrations/016_referrals*.sql) ───────────
+# "invite" / "refer a friend" → the person's code (TORI-K7P2QX) and a ready-to-forward message whose wa.me link
+# (BOARD_WHATSAPP_NUMBER) opens the bot with the code typed in. A message holding a code → public.referral_apply:
+# both wallets are credited in one journal entry. The friend gets a welcome and the services menu; the referrer
+# gets "your friend joined", kept for their next message when they are outside the 24-hour window.
+YR = Y0 + 6600
+add('Referral?', *IF, bool_if(
+    REF_CODE + ".test($json.messages?.[0]?.text?.body || '') || " + REF_CMD + ".test($json.messages?.[0]?.text?.body || '')"),
+    [trig['position'][0] + 200, trig['position'][1] + 1960])
+unlink('ToriPay command?', 'Profile input?', 1)
+link('ToriPay command?', 'Referral?', 1)
+link('Referral?', 'Read referral input', 0)
+link('Referral?', 'Profile input?', 1)
+add('Read referral input', *CODE, code(r"""
+const msg = $json.messages[0];
+const m = (msg.text?.body || '').match(/\btori-([a-hjkmnp-z2-9]{6})\b/i);
+return { json: { wa: msg.from, name: ($json.contacts?.[0]?.profile?.name || '').trim(), code: m ? m[1] : '' } };
+""", each=True), [col(0), YR])
+add('Code sent?', *IF, bool_if('!!$json.code'), [col(1), YR])
+link('Read referral input', 'Code sent?')
+link('Code sent?', 'Apply referral', 0)
+link('Code sent?', 'Invite', 1)
+
+REF_JS = r'''const BOT = String($env.BOARD_WHATSAPP_NUMBER || '').replace(/\D/g, '');
+const rs = (p) => '₹' + (Number(p || 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+const credits = (p) => `${(Number(p || 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })} credits`;
+const textBody = (t) => ({ type: 'text', text: { preview_url: false, body: t } });
+'''
+
+add('Invite', *PG, sql("SELECT public.referral_invite($1, nullif($2, '')) AS r, $1 AS \"to\";",
+                       "[ $json.wa, $json.name || '' ]"), [col(2), YR + 150], credentials=CRED_POSTGRES)
+add('Invite reply', *CODE, code(r"""
+""" + REF_JS + r"""
+// two messages: how it works, then one to forward (its link opens Tori with the code typed in)
+const r = $json.r;
+const each = credits(r.bonus_paise);
+const start = BOT ? `https://wa.me/${BOT}?text=${encodeURIComponent(`Hi Tori! 👋 My invite code is ${r.code}`)}` : null;
+const stats = r.friends > 0 ? `\n\n👥 Friends joined: ${r.friends} · you earned ${rs(r.earned_paise)}` : '';
+const full = r.friends >= r.max_friends
+  ? `\n\nYou've reached the ${r.max_friends}-friend bonus limit, but your friends still get their ${each} 🙌` : '';
+const how = `🎁 *Invite friends, earn credits*\n\n`
+  + `When a friend joins Tori with your code, you *both* get *${each}* (${rs(r.bonus_paise)}) in your Tori Wallet 💳\n\n`
+  + `Your code: *${r.code}*` + stats + full
+  + `\n\nForward the next message to your friends 👇`;
+const share = `Hey! I use *Tori* on WhatsApp to find people to play sports with and book courts, turfs and gyms 🏸⚽\n\n`
+  + `Join with my invite code *${r.code}* and we both get ${each} free 🎁\n\n`
+  + (start ? `Tap to start 👉 ${start}` : `Just message Tori and send the code.`);
+return [{ json: { to: $json.to, body: textBody(how), inside: true } }, { json: { to: $json.to, body: textBody(share), inside: true } }];
+"""), [col(3), YR + 150])
+link('Invite', 'Invite reply')
+link('Invite reply', 'Referral hold?')
+
+add('Apply referral', *PG, sql("SELECT public.referral_apply($1, nullif($2, ''), $3) AS r, $1 AS \"to\";",
+                               "[ $json.wa, $json.name || '', $json.code ]"), [col(2), YR - 150], credentials=CRED_POSTGRES)
+add('Referral messages', *CODE, code(r"""
+""" + REF_JS + r"""
+// public.referral_apply → the friend's reply (with the menu after a welcome) and the referrer's news
+const r = $json.r || {};
+const to = $json.to;
+const ref = r.referrer || {};
+const recent = (iso) => !!iso && Date.now() - new Date(iso).getTime() < 23 * 3600e3;
+const out = [];
+const push = (wa, t, extra = {}) => out.push({ json: { to: wa, body: textBody(t), inside: true, ...extra } });
+const MORE = `\n\nInvite your friends too: send *invite* 🎁`;
+if (r.state === 'ok') {
+  const who = ref.name || 'your friend';
+  const nm = $('Read referral input').first().json.name.split(/\s+/)[0];
+  push(to, `🎉 Welcome to Tori${nm ? ', ' + nm : ''}! You joined with ${who}'s invite`
+    + (r.bonus_paise > 0 ? `, so *${credits(r.bonus_paise)}* are now in your Tori Wallet 💳\n\nUse them to book courts, turfs and gyms with one tap.` : '.')
+    + MORE, { menu: true });
+  const friend = r.friend_name || 'A friend';
+  const t = ref.bonus_paise > 0
+    ? `🎉 ${friend} just joined Tori with your invite! *+${credits(ref.bonus_paise)}* added to your Tori Wallet 💳\nBalance: ${rs(ref.balance_paise)}`
+    : ref.limit_reached
+      ? `🎉 ${friend} just joined Tori with your invite! You've reached the friend bonus limit, so no credits this time, but they got theirs 🙌`
+      : `🎉 ${friend} just joined Tori with your invite! Your wallet is at its limit, so no credits were added this time.`;
+  out.push({ json: { to: ref.wa_id, body: textBody(t + `\n\nKeep inviting: send *invite* 🎁`), inside: recent(ref.last_message_at) } });
+} else if (r.state === 'already') {
+  push(to, r.same_referrer
+    ? `You've already got your invite bonus ✅ Wallet: ${rs(r.balance_paise)}` + MORE
+    : `You've already joined with an invite code: the bonus works once per person 🙂` + MORE);
+} else if (r.state === 'own') {
+  push(to, `That's your own invite code 🙂 Share it: when a friend joins with it, you both get free credits. Send *invite* for a message you can forward.`);
+} else if (r.state === 'not_new') {
+  push(to, `Invite codes are for people new to Tori, and you've been here a while 🙂 You can still earn: send *invite* to get your own code. You and every friend who joins with it get free credits 🎁`);
+} else {
+  push(to, `I couldn't find the invite code ${r.code || ''} 🤔 Check it with your friend and send it again.`, { menu: true });
+}
+return out;
+"""), [col(3), YR - 150])
+link('Apply referral', 'Referral messages')
+link('Referral messages', 'Referral hold?')
+# held messages first: n8n runs the branch higher on the canvas to its end first, and the menu path after the
+# sends can stop the execution (its old Supabase logging node has no error output)
+add('Referral hold?', *IF, bool_if('!$json.inside'), [col(4), YR])
+link('Referral hold?', 'Hold referral message', 0)
+link('Referral hold?', 'Send referral message', 1)
+add('Send referral message', *HTTP, whatsapp_send("{ messaging_product: 'whatsapp', to: $json.to, ...$json.body }"),
+    [col(5), YR + 100], **SEND)
+add('Hold referral message', *PG, sql("SELECT public.referral_hold($1, $2::jsonb);", '[ $json.to, JSON.stringify($json.body) ]'),
+    [col(5), YR - 100], credentials=CRED_POSTGRES, onError='continueRegularOutput')
+# a new person's first message was the invite: after the welcome, what Tori can do
+add('Menu after welcome?', *CODE, code(r"""
+return $('Referral hold?').all(1).some((i) => i.json.menu) ? [{ json: {} }] : [];
+"""), [col(6), YR + 100])
+link('Send referral message', 'Menu after welcome?')
+link('Menu after welcome?', 'SERVICE TYPE LIST BUILDING')
 
 # ── 11. People outside WhatsApp's 24-hour window (db/migrations/008_held_messages*.sql) ────────
 # Offers and match updates for someone who hasn't written in 24 h are kept in public.tori_held_messages

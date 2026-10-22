@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowDownLeft, ArrowUpRight, LogOut, MessageCircle, RotateCcw, Wallet } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Gift, LogOut, MessageCircle, RotateCcw, Wallet } from 'lucide-react';
 import { AddCredits } from '@/components/add-credits';
 import { btn, Logo } from '@/components/ui';
 import { botNumber } from '@/lib/board';
@@ -14,6 +14,7 @@ const KIND = {
   adjustment: { label: 'Adjustment', icon: RotateCcw },
   payee_payment: { label: 'ToriPay', icon: ArrowUpRight },
   payout_reversal: { label: 'ToriPay refund', icon: RotateCcw },
+  referral: { label: 'Invite bonus', icon: Gift },
 } as const;
 
 function when(iso: string) {
@@ -73,6 +74,18 @@ export default async function WalletPage({ searchParams }: { searchParams: Promi
 
             <AddCredits />
 
+            {bot && (
+              <section className="flex items-center gap-4 rounded-lg border border-hairline bg-canvas p-5">
+                <Gift className="size-6 shrink-0 text-ink" aria-hidden />
+                <p className="flex-1 text-body text-muted">
+                  <span className="font-medium text-ink">Invite friends, get free credits.</span> When a friend joins Tori with your code, you both get credits.
+                </p>
+                <a href={`https://wa.me/${bot}?text=${encodeURIComponent('invite')}`} target="_blank" rel="noopener noreferrer" className={btn('secondary', 'sm')}>
+                  Get my code
+                </a>
+              </section>
+            )}
+
             <section className="flex flex-col gap-3">
               <h2 className="text-title-lg">History</h2>
               {rows.map((h, i) => {
@@ -84,7 +97,7 @@ export default async function WalletPage({ searchParams }: { searchParams: Promi
                       <Icon className="size-4 text-ink" aria-hidden />
                     </span>
                     <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-label font-medium text-ink">{h.kind === 'charge' || h.kind === 'payee_payment' || h.kind === 'payout_reversal' ? h.memo : k.label}</span>
+                      <span className="truncate text-label font-medium text-ink">{h.kind === 'charge' || h.kind === 'payee_payment' || h.kind === 'payout_reversal' || h.kind === 'referral' ? h.memo : k.label}</span>
                       <span className="text-caption text-muted">{when(h.at)}{h.kind === 'topup' && h.ref ? ` · ${h.ref}` : ''}</span>
                     </div>
                     <span className={`shrink-0 text-label font-medium ${h.amount_paise > 0 ? 'text-success' : 'text-ink'}`}>

@@ -316,6 +316,27 @@ balance can never go below 0 ([012_wallet.sql](db/migrations/012_wallet.sql), `0
   - scenarios 10–11 of `scripts/profile_e2e.py` run the WhatsApp conversations (the harness runs the real
     web app against fake Razorpay and a fake IFSC directory).
 
+### Referrals (invite a friend, both get 30 credits)
+
+Rules: `db/migrations/016_referrals*.sql`. Bot: section 17 of `plan/build_partner_workflow.py`.
+
+- **"invite"**, "refer a friend" or "free credits" → the person's code (`TORI-K7P2QX`, no 0/O/1/I/L) and a
+  message to forward. The link in it (`wa.me/<BOARD_WHATSAPP_NUMBER>`) opens Tori with
+  "My invite code is TORI-…" already typed.
+- **A message with a code** → `referral_apply()`: one journal entry pays 30 credits to each person from
+  `tori:referrals`. The friend gets a welcome and the menu. The referrer gets "Bina just joined" (kept for
+  their next message if they are outside the 24-hour window).
+- **Rules:** a person can be referred once; a code works in their first 7 days on Tori; nobody can use their
+  own code; someone who has already invited people can't be referred (so two people can't swap codes); a
+  referrer earns for at most 50 friends (the friend still gets the bonus); the ₹10,000 balance cap holds.
+- **Settings** (`tori_settings`): `wallet_referral_bonus_paise` (3000), `wallet_referral_days` (7),
+  `wallet_referral_max` (50), e.g.
+  `INSERT INTO tori_settings VALUES ('wallet_referral_bonus_paise', '5000') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;`
+- **Ops:** `SELECT * FROM referrals ORDER BY created_at DESC;` · total spent:
+  `SELECT -sum(amount_paise) / 100 FROM wallet_postings WHERE account = 'tori:referrals';`
+- **Tests:** `db/tests/referrals.sql` (31 checks); `E2E_ONLY=referral scripts/travel-e2e.sh` runs the
+  WhatsApp conversations (`scripts/referral_e2e.py`, about a minute, no LLM calls).
+
 ### People outside WhatsApp's 24-hour window
 
 WhatsApp only lets the bot message someone within 24 hours of their last message; after that only an

@@ -6936,7 +6936,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Services menu (WhatsApp interactive list: max 10 rows, header 60 chars, row titles 24, descriptions 72,\n// section titles 24, button 20). Keep the titles and IDs of the existing rows: the Switch matches\n// \"🤝Connect-MyPerfect Match\" and \"🎯Partner for an Activity\" by title, and numeric IDs go to the booking\n// flow by title. Caught before the Switch: \"travel_buddy\" (Travel button?), \"menu_wallet\" (Wallet command?),\n// \"menu_toripay\" (ToriPay command?).\nconst sections = [\n  { title: 'Play & meet', rows: [\n    { id: '2', title: '🎯Partner for an Activity', description: 'Find someone to play a sport or work out with' },\n    { id: 'travel_buddy', title: '🚕 Cab buddy', description: 'Share a ride with someone going your way and split the fare' },\n    { id: '1', title: '🤝Connect-MyPerfect Match', description: 'Meet like-minded people near you' },\n  ] },\n  { title: 'Book a slot', rows: [\n    { id: '3', title: 'Fitness & Gym 💪', description: 'Gyms, yoga studios and fitness classes' },\n    { id: '5', title: 'Racket Courts 🏟️', description: 'Badminton, pickleball, padel and coaching' },\n    { id: '6', title: 'Turf / Cricket 🏏', description: 'Football turfs and box cricket' },\n  ] },\n  { title: 'Health & recovery', rows: [\n    { id: '4', title: 'HealthCare 🩺', description: 'Hospitals, doctors and clinics' },\n    { id: '7', title: 'Physiotherapy 🦴', description: 'Sports injuries, pain relief and recovery' },\n  ] },\n  { title: 'Wallet & payments', rows: [\n    { id: 'menu_wallet', title: '💳 Tori Wallet', description: 'Check your balance and add credits' },\n    { id: 'menu_toripay', title: '💸 ToriPay', description: 'Pay your gym, turf or coach from your wallet' },\n  ] },\n];\nconst first = ($('WhatsApp Trigger').first().json.contacts?.[0]?.profile?.name || '').trim().split(/\\s+/)[0];\nconst board = ($env.BOARD_PUBLIC_URL || '').replace(/\\/+$/, '');\nreturn [{ interactive: {\n  type: 'list',\n  header: { type: 'text', text: 'Welcome to Tori ✨' },\n  body: { text: `Hi${first ? ' ' + first : ''} 👋 Here's what I can do for you:\\n\\n`\n    + '🎯 *Partners*: find people to play or work out with\\n'\n    + '🚕 *Cab buddy*: share a ride and split the fare\\n'\n    + '📅 *Bookings*: gyms, courts, turfs and clinics\\n'\n    + '💳 *Tori Wallet*: add credits once, pay with one tap\\n'\n    + '💸 *ToriPay*: pay your gym or coach right here\\n\\n'\n    + 'Just type or send a voice note 🎙️ e.g.\\n'\n    + '_\"Badminton tomorrow 7 pm in HSR\"_\\n'\n    + '_\"tori pay gym 500\"_'\n    + (board ? `\\n\\n👀 *Open games near you*, join with a tap:\\n${board}` : '') },\n  footer: { text: 'Tori · toriate.com' },\n  action: { button: 'View services', sections },\n} }];\n"
+        "jsCode": "// Services menu (WhatsApp interactive list: max 10 rows, header 60 chars, row titles 24, descriptions 72,\n// section titles 24, button 20). Keep the titles and IDs of the existing rows: the Switch matches\n// \"🤝Connect-MyPerfect Match\" and \"🎯Partner for an Activity\" by title, and numeric IDs go to the booking\n// flow by title. Caught before the Switch: \"travel_buddy\" (Travel button?), \"menu_wallet\" (Wallet command?),\n// \"menu_toripay\" (ToriPay command?).\nconst sections = [\n  { title: 'Play & meet', rows: [\n    { id: '2', title: '🎯Partner for an Activity', description: 'Find someone to play a sport or work out with' },\n    { id: 'travel_buddy', title: '🚕 Cab buddy', description: 'Share a ride with someone going your way and split the fare' },\n    { id: '1', title: '🤝Connect-MyPerfect Match', description: 'Meet like-minded people near you' },\n  ] },\n  { title: 'Book a slot', rows: [\n    { id: '3', title: 'Fitness & Gym 💪', description: 'Gyms, yoga studios and fitness classes' },\n    { id: '5', title: 'Racket Courts 🏟️', description: 'Badminton, pickleball, padel and coaching' },\n    { id: '6', title: 'Turf / Cricket 🏏', description: 'Football turfs and box cricket' },\n  ] },\n  { title: 'Health & recovery', rows: [\n    { id: '4', title: 'HealthCare 🩺', description: 'Hospitals, doctors and clinics' },\n    { id: '7', title: 'Physiotherapy 🦴', description: 'Sports injuries, pain relief and recovery' },\n  ] },\n  { title: 'Wallet & payments', rows: [\n    { id: 'menu_wallet', title: '💳 Tori Wallet', description: 'Check your balance and add credits' },\n    { id: 'menu_toripay', title: '💸 ToriPay', description: 'Pay your gym, turf or coach from your wallet' },\n  ] },\n];\nconst first = ($('WhatsApp Trigger').first().json.contacts?.[0]?.profile?.name || '').trim().split(/\\s+/)[0];\nconst board = ($env.BOARD_PUBLIC_URL || '').replace(/\\/+$/, '');\nreturn [{ interactive: {\n  type: 'list',\n  header: { type: 'text', text: 'Welcome to Tori ✨' },\n  body: { text: `Hi${first ? ' ' + first : ''} 👋 Here's what I can do for you:\\n\\n`\n    + '🎯 *Partners*: find people to play or work out with\\n'\n    + '🚕 *Cab buddy*: share a ride and split the fare\\n'\n    + '📅 *Bookings*: gyms, courts, turfs and clinics\\n'\n    + '💳 *Tori Wallet*: add credits once, pay with one tap\\n'\n    + '💸 *ToriPay*: pay your gym or coach right here\\n'\n    + '🎁 *Invite friends*: you both get free credits, send *invite*\\n\\n'\n    + 'Just type or send a voice note 🎙️ e.g.\\n'\n    + '_\"Badminton tomorrow 7 pm in HSR\"_\\n'\n    + '_\"tori pay gym 500\"_'\n    + (board ? `\\n\\n👀 *Open games near you*, join with a tap:\\n${board}` : '') },\n  footer: { text: 'Tori · toriate.com' },\n  action: { button: 'View services', sections },\n} }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -8101,7 +8101,7 @@
           "conditions": [
             {
               "id": "b5e596f9-2e23-5a1d-be36-e36ab6a137af",
-              "leftValue": "={{ !!$env.TORI_GOOGLE_URL && (($json.messages?.[0]?.interactive?.button_reply?.id || $json.messages?.[0]?.interactive?.list_reply?.id || '').startsWith('gg_') || !!($json.messages?.[0]?.image || $json.messages?.[0]?.document || $json.messages?.[0]?.video) || ($json.messages?.[0]?.type === 'text' && !/^\\s*(hi+|hello|hey|menu|start)\\W*$/i.test($json.messages[0].text?.body ?? '') && ($json.messages[0].text?.body ?? '').trim() !== '20' && !/^\\s*book\\s+/i.test($json.messages[0].text?.body ?? '') && !/^\\s*(tori\\s?pay|toripay|my\\s+payees|join\\s+[a-z0-9]{4,8}|add\\s+(credits?|money|balance)|top[\\s-]?up|recharge|(my\\s+|tori\\s+)?wallet|balance|credits?)\\b/i.test($json.messages[0].text?.body ?? '') && !/^\\s*[a-z0-9]+(\\s[a-z0-9]+)?\\s+edit\\s*$|^\\s*edit\\s+[a-z0-9]+(\\s[a-z0-9]+)?\\s*$/i.test($json.messages[0].text?.body ?? '') && !$('Log inbound message').first().json.res?.toripay_step)) }}",
+              "leftValue": "={{ !!$env.TORI_GOOGLE_URL && (($json.messages?.[0]?.interactive?.button_reply?.id || $json.messages?.[0]?.interactive?.list_reply?.id || '').startsWith('gg_') || !!($json.messages?.[0]?.image || $json.messages?.[0]?.document || $json.messages?.[0]?.video) || ($json.messages?.[0]?.type === 'text' && !/^\\s*(hi+|hello|hey|menu|start)\\W*$/i.test($json.messages[0].text?.body ?? '') && ($json.messages[0].text?.body ?? '').trim() !== '20' && !/^\\s*book\\s+/i.test($json.messages[0].text?.body ?? '') && !/^\\s*(tori\\s?pay|toripay|my\\s+payees|join\\s+[a-z0-9]{4,8}|add\\s+(credits?|money|balance)|top[\\s-]?up|recharge|(my\\s+|tori\\s+)?wallet|balance|credits?)\\b/i.test($json.messages[0].text?.body ?? '') && !/^\\s*[a-z0-9]+(\\s[a-z0-9]+)?\\s+edit\\s*$|^\\s*edit\\s+[a-z0-9]+(\\s[a-z0-9]+)?\\s*$/i.test($json.messages[0].text?.body ?? '') && !/\\btori-[a-hjkmnp-z2-9]{6}\\b/i.test($json.messages[0].text?.body ?? '') && !/^\\s*(my\\s+)?((invite|referral|refer)(\\s+code|s)?|(refer|invite)(\\s+(a|my))?\\s+friends?|(earn|free|get)\\s+(free\\s+)?credits?)\\s*[.!?]*\\s*$/i.test($json.messages[0].text?.body ?? '') && !$('Log inbound message').first().json.res?.toripay_step)) }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -9655,7 +9655,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const BOARD = ($env.BOARD_PUBLIC_URL || '').replace(/\\/+$/, '');\nconst rs = (p) => '₹' + (Number(p || 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });\nconst link = (l) => (BOARD && l && l.token ? `${BOARD}/wallet/login?t=${l.token}` : null);\nconst textBody = (t) => ({ type: 'text', text: { preview_url: false, body: t } });\n// the payment request: one tap to pay, or a link to add credits first\nconst chargeBody = (c, l) => {\n  const url = link(l);\n  const head = `💳 *${c.description}*\\nAmount: *${rs(c.amount_paise)}*`;\n  if (!['pending'].includes(c.status)) return textBody(`${head}\\n\\nThis payment is ${c.status} already.`);\n  const text = c.enough\n    ? `${head}\\nFrom your Tori Wallet: ${rs(c.balance_paise)} → ${rs(c.balance_paise - c.amount_paise)} after.\\n\\nOne tap and it's paid 👇`\n    : `${head}\\nYour Tori Wallet has ${rs(c.balance_paise)}: add ${rs(c.amount_paise - c.balance_paise)} or more`\n      + (url ? ` here 👉 ${url}` : '') + `\\n\\nThen tap *Pay* 👇`;\n  return { type: 'interactive', interactive: { type: 'button', body: { text },\n    action: { buttons: [ { type: 'reply', reply: { id: 'wp_yes_' + c.charge_id, title: `Pay ${rs(c.amount_paise)}`.slice(0, 20) } },\n                         { type: 'reply', reply: { id: 'wp_no_' + c.charge_id, title: 'Cancel' } } ] } } };\n};\n\nconst url = link($json.l);\nconst t = `💳 *Tori Wallet*: ${rs($json.l.balance_paise)} (${Number($json.l.balance_paise) / 100} credits)\\n\\n`\n  + (url ? `Add credits here 👉 ${url}\\n_(this link works once, for 15 minutes)_` : \"The wallet page isn't online right now. Please try again later 🙏\")\n  + `\\n\\nWhen you book with Tori, just tap *Pay*: it comes straight from your wallet, no payment page.`;\nreturn [{ json: { to: $json.to, body: textBody(t) } }];\n"
+        "jsCode": "const BOARD = ($env.BOARD_PUBLIC_URL || '').replace(/\\/+$/, '');\nconst rs = (p) => '₹' + (Number(p || 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });\nconst link = (l) => (BOARD && l && l.token ? `${BOARD}/wallet/login?t=${l.token}` : null);\nconst textBody = (t) => ({ type: 'text', text: { preview_url: false, body: t } });\n// the payment request: one tap to pay, or a link to add credits first\nconst chargeBody = (c, l) => {\n  const url = link(l);\n  const head = `💳 *${c.description}*\\nAmount: *${rs(c.amount_paise)}*`;\n  if (!['pending'].includes(c.status)) return textBody(`${head}\\n\\nThis payment is ${c.status} already.`);\n  const text = c.enough\n    ? `${head}\\nFrom your Tori Wallet: ${rs(c.balance_paise)} → ${rs(c.balance_paise - c.amount_paise)} after.\\n\\nOne tap and it's paid 👇`\n    : `${head}\\nYour Tori Wallet has ${rs(c.balance_paise)}: add ${rs(c.amount_paise - c.balance_paise)} or more`\n      + (url ? ` here 👉 ${url}` : '') + `\\n\\nThen tap *Pay* 👇`;\n  return { type: 'interactive', interactive: { type: 'button', body: { text },\n    action: { buttons: [ { type: 'reply', reply: { id: 'wp_yes_' + c.charge_id, title: `Pay ${rs(c.amount_paise)}`.slice(0, 20) } },\n                         { type: 'reply', reply: { id: 'wp_no_' + c.charge_id, title: 'Cancel' } } ] } } };\n};\n\nconst url = link($json.l);\nconst t = `💳 *Tori Wallet*: ${rs($json.l.balance_paise)} (${Number($json.l.balance_paise) / 100} credits)\\n\\n`\n  + (url ? `Add credits here 👉 ${url}\\n_(this link works once, for 15 minutes)_` : \"The wallet page isn't online right now. Please try again later 🙏\")\n  + `\\n\\nWhen you book with Tori, just tap *Pay*: it comes straight from your wallet, no payment page.`\n  + `\\n\\n🎁 Free credits: invite a friend and you both get some. Send *invite*`;\nreturn [{ json: { to: $json.to, body: textBody(t) } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -10251,6 +10251,269 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f0e71b39-0a85-5ee1-a41d-d1b9e88a4f57",
+              "leftValue": "={{ /\\btori-[a-hjkmnp-z2-9]{6}\\b/i.test($json.messages?.[0]?.text?.body || '') || /^\\s*(my\\s+)?((invite|referral|refer)(\\s+code|s)?|(refer|invite)(\\s+(a|my))?\\s+friends?|(earn|free|get)\\s+(free\\s+)?credits?)\\s*[.!?]*\\s*$/i.test($json.messages?.[0]?.text?.body || '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        9912
+      ],
+      "id": "b80019f9-ab60-5af7-958a-316a5f4edecd",
+      "name": "Referral?"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const msg = $json.messages[0];\nconst m = (msg.text?.body || '').match(/\\btori-([a-hjkmnp-z2-9]{6})\\b/i);\nreturn { json: { wa: msg.from, name: ($json.contacts?.[0]?.profile?.name || '').trim(), code: m ? m[1] : '' } };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1504,
+        21584
+      ],
+      "id": "538021ff-d76e-5525-b8bf-8b3133ea7aa0",
+      "name": "Read referral input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "97a2f7bd-0c63-5375-b62c-df5ec74ee608",
+              "leftValue": "={{ !!$json.code }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1244,
+        21584
+      ],
+      "id": "438e34c7-89b4-5fca-9f62-833216a4a061",
+      "name": "Code sent?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.referral_invite($1, nullif($2, '')) AS r, $1 AS \"to\";",
+        "options": {
+          "queryReplacement": "={{ [ $json.wa, $json.name || '' ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -984,
+        21734
+      ],
+      "id": "bde9e062-fdee-55fe-99db-0e2dbb731c9f",
+      "name": "Invite",
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const BOT = String($env.BOARD_WHATSAPP_NUMBER || '').replace(/\\D/g, '');\nconst rs = (p) => '₹' + (Number(p || 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });\nconst credits = (p) => `${(Number(p || 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })} credits`;\nconst textBody = (t) => ({ type: 'text', text: { preview_url: false, body: t } });\n\n// two messages: how it works, then one to forward (its link opens Tori with the code typed in)\nconst r = $json.r;\nconst each = credits(r.bonus_paise);\nconst start = BOT ? `https://wa.me/${BOT}?text=${encodeURIComponent(`Hi Tori! 👋 My invite code is ${r.code}`)}` : null;\nconst stats = r.friends > 0 ? `\\n\\n👥 Friends joined: ${r.friends} · you earned ${rs(r.earned_paise)}` : '';\nconst full = r.friends >= r.max_friends\n  ? `\\n\\nYou've reached the ${r.max_friends}-friend bonus limit, but your friends still get their ${each} 🙌` : '';\nconst how = `🎁 *Invite friends, earn credits*\\n\\n`\n  + `When a friend joins Tori with your code, you *both* get *${each}* (${rs(r.bonus_paise)}) in your Tori Wallet 💳\\n\\n`\n  + `Your code: *${r.code}*` + stats + full\n  + `\\n\\nForward the next message to your friends 👇`;\nconst share = `Hey! I use *Tori* on WhatsApp to find people to play sports with and book courts, turfs and gyms 🏸⚽\\n\\n`\n  + `Join with my invite code *${r.code}* and we both get ${each} free 🎁\\n\\n`\n  + (start ? `Tap to start 👉 ${start}` : `Just message Tori and send the code.`);\nreturn [{ json: { to: $json.to, body: textBody(how), inside: true } }, { json: { to: $json.to, body: textBody(share), inside: true } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -724,
+        21734
+      ],
+      "id": "574ad522-cf26-515e-9497-929ccbd35d01",
+      "name": "Invite reply"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.referral_apply($1, nullif($2, ''), $3) AS r, $1 AS \"to\";",
+        "options": {
+          "queryReplacement": "={{ [ $json.wa, $json.name || '', $json.code ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -984,
+        21434
+      ],
+      "id": "98777e55-a9d1-5262-8a11-d5f72c9f9070",
+      "name": "Apply referral",
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const BOT = String($env.BOARD_WHATSAPP_NUMBER || '').replace(/\\D/g, '');\nconst rs = (p) => '₹' + (Number(p || 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });\nconst credits = (p) => `${(Number(p || 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })} credits`;\nconst textBody = (t) => ({ type: 'text', text: { preview_url: false, body: t } });\n\n// public.referral_apply → the friend's reply (with the menu after a welcome) and the referrer's news\nconst r = $json.r || {};\nconst to = $json.to;\nconst ref = r.referrer || {};\nconst recent = (iso) => !!iso && Date.now() - new Date(iso).getTime() < 23 * 3600e3;\nconst out = [];\nconst push = (wa, t, extra = {}) => out.push({ json: { to: wa, body: textBody(t), inside: true, ...extra } });\nconst MORE = `\\n\\nInvite your friends too: send *invite* 🎁`;\nif (r.state === 'ok') {\n  const who = ref.name || 'your friend';\n  const nm = $('Read referral input').first().json.name.split(/\\s+/)[0];\n  push(to, `🎉 Welcome to Tori${nm ? ', ' + nm : ''}! You joined with ${who}'s invite`\n    + (r.bonus_paise > 0 ? `, so *${credits(r.bonus_paise)}* are now in your Tori Wallet 💳\\n\\nUse them to book courts, turfs and gyms with one tap.` : '.')\n    + MORE, { menu: true });\n  const friend = r.friend_name || 'A friend';\n  const t = ref.bonus_paise > 0\n    ? `🎉 ${friend} just joined Tori with your invite! *+${credits(ref.bonus_paise)}* added to your Tori Wallet 💳\\nBalance: ${rs(ref.balance_paise)}`\n    : ref.limit_reached\n      ? `🎉 ${friend} just joined Tori with your invite! You've reached the friend bonus limit, so no credits this time, but they got theirs 🙌`\n      : `🎉 ${friend} just joined Tori with your invite! Your wallet is at its limit, so no credits were added this time.`;\n  out.push({ json: { to: ref.wa_id, body: textBody(t + `\\n\\nKeep inviting: send *invite* 🎁`), inside: recent(ref.last_message_at) } });\n} else if (r.state === 'already') {\n  push(to, r.same_referrer\n    ? `You've already got your invite bonus ✅ Wallet: ${rs(r.balance_paise)}` + MORE\n    : `You've already joined with an invite code: the bonus works once per person 🙂` + MORE);\n} else if (r.state === 'own') {\n  push(to, `That's your own invite code 🙂 Share it: when a friend joins with it, you both get free credits. Send *invite* for a message you can forward.`);\n} else if (r.state === 'not_new') {\n  push(to, `Invite codes are for people new to Tori, and you've been here a while 🙂 You can still earn: send *invite* to get your own code. You and every friend who joins with it get free credits 🎁`);\n} else {\n  push(to, `I couldn't find the invite code ${r.code || ''} 🤔 Check it with your friend and send it again.`, { menu: true });\n}\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -724,
+        21434
+      ],
+      "id": "c6fb8495-0a3f-53c9-a992-e39606336ae4",
+      "name": "Referral messages"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9cb74caf-e67e-5460-b4c3-9ae5ea9015bd",
+              "leftValue": "={{ !$json.inside }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -464,
+        21584
+      ],
+      "id": "897f8aa0-480c-56f9-a735-1cce69ccb5c5",
+      "name": "Referral hold?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BOT_WHATSAPP_GRAPH_URL || 'https://graph.facebook.com/v19.0' }}/{{ $env.BOT_WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', to: $json.to, ...$json.body }) }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -204,
+        21684
+      ],
+      "id": "6a8535b3-ff90-5405-8dc4-4b9ff07e9ac3",
+      "name": "Send referral message",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "toriWhatsAppHdr1",
+          "name": "WhatsApp Cloud API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.referral_hold($1, $2::jsonb);",
+        "options": {
+          "queryReplacement": "={{ [ $json.to, JSON.stringify($json.body) ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -204,
+        21484
+      ],
+      "id": "9caa93b7-7bf9-550a-af15-454ef7c09ec4",
+      "name": "Hold referral message",
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $('Referral hold?').all(1).some((i) => i.json.menu) ? [{ json: {} }] : [];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        56,
+        21684
+      ],
+      "id": "b5476ed6-5dcb-5327-b3a7-1e249d52fcbd",
+      "name": "Menu after welcome?"
+    },
+    {
+      "parameters": {
         "content": "## Held messages\nSQL: db/migrations/008_held_messages*.sql\n\n- WhatsApp only allows replies within 24 h of the user's last message (else a template)\n- Offers / updates for people outside it are kept (**Hold offer**, **Hold update**)\n- **Take held messages** sends them on the person's next message; \"any match?\" re-sends open offers\n- Set PARTNER_MATCH_TEMPLATE to an approved template name to send offers right away instead",
         "height": 260,
         "width": 620,
@@ -10262,7 +10525,7 @@
         -1504,
         17384
       ],
-      "id": "f0e71b39-0a85-5ee1-a41d-d1b9e88a4f57",
+      "id": "6d4b3197-3512-5e58-8681-eb5d536b8915",
       "name": "Held messages (about)"
     },
     {
@@ -10279,7 +10542,7 @@
         600,
         7432
       ],
-      "id": "b80019f9-ab60-5af7-958a-316a5f4edecd",
+      "id": "54a70eb4-c845-586e-b4fc-12448950ae2c",
       "name": "Take held messages",
       "credentials": {
         "postgres": {
@@ -10299,7 +10562,7 @@
         840,
         7432
       ],
-      "id": "538021ff-d76e-5525-b8bf-8b3133ea7aa0",
+      "id": "5da4f793-5959-5860-9f34-a5c78e7de7c4",
       "name": "Held to send"
     },
     {
@@ -10327,7 +10590,7 @@
         1080,
         7432
       ],
-      "id": "97a2f7bd-0c63-5375-b62c-df5ec74ee608",
+      "id": "9c57fdce-6a2a-5773-8ca8-a3813f5d8f25",
       "name": "Send held message",
       "credentials": {
         "httpHeaderAuth": {
@@ -10351,7 +10614,7 @@
         -204,
         17684
       ],
-      "id": "438e34c7-89b4-5fca-9f62-833216a4a061",
+      "id": "6596bc36-648f-5040-a952-ce418a118233",
       "name": "Partner status",
       "credentials": {
         "postgres": {
@@ -10371,7 +10634,7 @@
         56,
         17684
       ],
-      "id": "bde9e062-fdee-55fe-99db-0e2dbb731c9f",
+      "id": "0e338167-4c10-57fa-9ca1-a2d1ba47160f",
       "name": "Build status reply"
     },
     {
@@ -13825,7 +14088,7 @@
         ],
         [
           {
-            "node": "Profile input?",
+            "node": "Referral?",
             "type": "main",
             "index": 0
           }
@@ -13915,6 +14178,137 @@
         [
           {
             "node": "Send payout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Referral?": {
+      "main": [
+        [
+          {
+            "node": "Read referral input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Profile input?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read referral input": {
+      "main": [
+        [
+          {
+            "node": "Code sent?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code sent?": {
+      "main": [
+        [
+          {
+            "node": "Apply referral",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Invite",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Invite": {
+      "main": [
+        [
+          {
+            "node": "Invite reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Invite reply": {
+      "main": [
+        [
+          {
+            "node": "Referral hold?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply referral": {
+      "main": [
+        [
+          {
+            "node": "Referral messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Referral messages": {
+      "main": [
+        [
+          {
+            "node": "Referral hold?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Referral hold?": {
+      "main": [
+        [
+          {
+            "node": "Hold referral message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send referral message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send referral message": {
+      "main": [
+        [
+          {
+            "node": "Menu after welcome?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Menu after welcome?": {
+      "main": [
+        [
+          {
+            "node": "SERVICE TYPE LIST BUILDING",
             "type": "main",
             "index": 0
           }
