@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Give the local n8n a public HTTPS address (Cloudflare quick tunnel) so Meta can deliver
-# WhatsApp messages to workflow 06, then restart n8n with that address as WEBHOOK_URL.
+# WhatsApp messages and calls to workflow 06, then restart n8n with that address as WEBHOOK_URL.
 # The address changes every time the tunnel container starts: run this script again after that.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -59,7 +59,7 @@ fi
 app_token="${BOT_META_APP_ID}|${BOT_META_APP_SECRET}"
 result=$(curl -s -X POST "https://graph.facebook.com/v19.0/${BOT_META_APP_ID}/subscriptions" \
   --data-urlencode "object=whatsapp_business_account" --data-urlencode "callback_url=$callback" \
-  --data-urlencode "verify_token=$node_id" --data-urlencode 'fields=["messages"]' \
+  --data-urlencode "verify_token=$node_id" --data-urlencode 'fields=["messages","calls"]' \
   --data-urlencode "include_values=true" --data-urlencode "access_token=$app_token")
 case "$result" in
   *'"success":true'*) echo "Meta webhook → $callback" ;;

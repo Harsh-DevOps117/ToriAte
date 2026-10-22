@@ -1,0 +1,16 @@
+{
+  "name": "tori-voice-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WhatsApp Calling API (WebRTC) <-> Vapi WebSocket transport media bridge for the Harsh AI assistant",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test --test-force-exit test/*.test.js"
+  },
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "@roamhq/wrtc": "0.10.0",
+    "ws": "8.22.0"
+  }
+}

@@ -4,7 +4,8 @@
     {
       "parameters": {
         "updates": [
-          "messages"
+          "messages",
+          "calls"
         ],
         "options": {
           "messageStatusUpdates": []
@@ -10372,6 +10373,62 @@
       ],
       "id": "bde9e062-fdee-55fe-99db-0e2dbb731c9f",
       "name": "Build status reply"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b689f65f-22d2-5124-98bd-9209bbddbabb",
+              "leftValue": "={{ $json.field === 'calls' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "57fd6d72-94c0-5348-a990-da6b9b954206",
+      "name": "Call event?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        8172
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "toriVoiceCalls01"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "f1baf40b-439e-5a77-829f-9aee33195a22",
+      "name": "Voice call (13)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        260,
+        8172
+      ],
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -10379,7 +10436,7 @@
       "main": [
         [
           {
-            "node": "Log inbound message",
+            "node": "Call event?",
             "type": "main",
             "index": 0
           }
@@ -13902,6 +13959,24 @@
         [
           {
             "node": "Send partner text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call event?": {
+      "main": [
+        [
+          {
+            "node": "Voice call (13)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log inbound message",
             "type": "main",
             "index": 0
           }

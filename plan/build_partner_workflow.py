@@ -1889,6 +1889,11 @@ if LOCAL:
     assert not re.search(r'graph\.facebook\.com/v[\d.]+/\d|EAA[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{20,}\.', text), \
         'a token or hardcoded phone number ID survived'
 
+# ── WhatsApp calls → workflow 13 (Harsh AI voice), before anything reads them as messages ────────────
+from build_voice_workflow import add_call_hook  # noqa: E402
+add_call_hook(wf)
+nodes = {n['name']: n for n in wf['nodes']}
+
 # ── Sanity checks ───────────────────────────────────────────────────────────────────────────────
 names = [n['name'] for n in wf['nodes']]
 assert len(names) == len(set(names)), 'duplicate node names'

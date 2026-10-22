@@ -74,6 +74,10 @@ x-n8n-env: &n8n-env
   TRAVEL_TEMPLATE_LANG: ${TRAVEL_TEMPLATE_LANG:-}
   TRAVEL_TRIP_FLOW_ID: ${TRAVEL_TRIP_FLOW_ID:-}
   TRAVEL_TRIP_FLOW_MODE: ${TRAVEL_TRIP_FLOW_MODE:-}
+  # Harsh AI voice calls (workflow 13): where WhatsApp call webhooks go, and the secrets n8n checks
+  VOICE_BRIDGE_URL: ${VOICE_BRIDGE_URL:-http://voice-bridge:8099}
+  VOICE_BRIDGE_SECRET: ${VOICE_BRIDGE_SECRET:-}
+  VAPI_SERVER_SECRET: ${VAPI_SERVER_SECRET:-}
 
 services:
   postgres:
@@ -231,11 +235,46 @@ services:
       RAZORPAYX_WEBHOOK_SECRET: ${RAZORPAYX_WEBHOOK_SECRET:-}
       TORI_ADMIN_KEY: ${TORI_ADMIN_KEY:-}
       TORI_BOT_URL: http://n8n:5678
+      # Harsh AI voice page (/voice): a Vapi *public* key, restricted to this site's origins in the Vapi dashboard
+      NEXT_PUBLIC_VAPI_PUBLIC_KEY: ${NEXT_PUBLIC_VAPI_PUBLIC_KEY:-}
+      VAPI_ASSISTANT_ID: ${VAPI_ASSISTANT_ID:-afd96ebf-40a7-40d2-bc0b-b6b94367e588}
     ports:
       - "127.0.0.1:${BOARD_PORT:-3001}:3000"
     depends_on:
       db-migrate:
         condition: service_completed_successfully
+
+  # Harsh AI on WhatsApp calls (voice-bridge/): WebRTC audio from Meta's Calling API ↔ Vapi's WebSocket
+  # transport, one isolated session per call. n8n (workflow 13) forwards the call webhooks here; audio
+  # never goes through n8n. Media is UDP to/from Meta's servers (ICE through NAT, no ports to open).
+  voice-bridge:
+    build: ./voice-bridge
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ}
+      VOICE_BRIDGE_SECRET: ${VOICE_BRIDGE_SECRET:-}
+      BOT_WHATSAPP_TOKEN: ${BOT_WHATSAPP_TOKEN:-}
+      BOT_WHATSAPP_PHONE_NUMBER_ID: ${BOT_WHATSAPP_PHONE_NUMBER_ID:-}
+      BOT_META_APP_SECRET: ${BOT_META_APP_SECRET:-}
+      META_VERIFY_TOKEN: ${META_VERIFY_TOKEN:-}
+      VOICE_GRAPH_URL: ${VOICE_GRAPH_URL:-}
+      VAPI_PRIVATE_API_KEY: ${VAPI_PRIVATE_API_KEY:-}
+      VAPI_ASSISTANT_ID: ${VAPI_ASSISTANT_ID:-afd96ebf-40a7-40d2-bc0b-b6b94367e588}
+      VAPI_SERVER_URL: ${VAPI_SERVER_URL:-}
+      VAPI_SERVER_SECRET: ${VAPI_SERVER_SECRET:-}
+      VOICE_EVENTS_URL: ${VOICE_EVENTS_URL:-http://n8n:5678/webhook/voice/events}
+      VOICE_MAX_CALLS: ${VOICE_MAX_CALLS:-5}
+      VOICE_MAX_CALL_SECONDS: ${VOICE_MAX_CALL_SECONDS:-900}
+      VOICE_STUN_URLS: ${VOICE_STUN_URLS:-}
+      LOG_LEVEL: ${VOICE_LOG_LEVEL:-info}
+    ports:
+      - "127.0.0.1:8099:8099"
+    healthcheck:
+      # 503 = running but not configured yet (see /health → missing)
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8099/health').then(r=>process.exit(r.status===200||r.status===503?0:1),()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   # Public HTTPS address for n8n, so Meta can deliver WhatsApp messages to this laptop.
   # Started by scripts/bot-tunnel.sh, which also puts the address into WEBHOOK_URL.

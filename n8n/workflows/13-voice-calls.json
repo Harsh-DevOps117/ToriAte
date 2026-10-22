@@ -1,0 +1,586 @@
+{
+  "id": "toriVoiceCalls01",
+  "name": "Tori 13 · Voice calls (WhatsApp → Harsh AI)",
+  "description": "Control plane for Harsh AI voice calls: forwards WhatsApp call webhooks (from 06) to voice-bridge, logs the call lifecycle, answers Vapi tool calls and stores end-of-call reports. Audio never passes through n8n.",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "dd00d067-22b6-58ca-8c2f-daa72d7968c5",
+      "name": "Call webhook from 06",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.VOICE_BRIDGE_URL || 'http://voice-bridge:8099') + '/calls/event' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-bridge-secret",
+              "value": "={{ $env.VOICE_BRIDGE_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "f8ea1539-fa06-53c6-b74c-84132d3fc004",
+      "name": "Forward to voice bridge",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// value.calls[] (+ the caller in value.contacts[0]) → one item per call event, with what the bridge did\nconst out = [];\nconst hooks = $('Call webhook from 06').all();\n$input.all().forEach((res, i) => {\n  const v = hooks[i]?.json || {};\n  const handled = res.json.body?.handled || [];\n  const contact = (v.contacts || [])[0] || {};\n  for (const c of v.calls || []) {\n    out.push({ json: { ev: {\n      ...c,\n      wa_id: c.from || c.from_user_id || contact.wa_id || contact.user_id || null,\n      name: contact.profile?.name || null,\n      errors: v.errors || c.errors,\n      bridge: handled.find((h) => h.id === c.id)?.result || (res.json.statusCode ? `http_${res.json.statusCode}` : 'unreachable'),\n    } } });\n  }\n});\nreturn out;\n"
+      },
+      "id": "93ae80df-5336-5d75-8bed-3b6fb101a39a",
+      "name": "One row per call event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.voice_log_event($1, $2::jsonb) AS res;",
+        "options": {
+          "queryReplacement": "={{ [ 'meta', JSON.stringify($json.ev) ] }}"
+        }
+      },
+      "id": "ae5ff14a-cd3e-548b-ae03-b1dd9388f9fc",
+      "name": "Log Meta call event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        780,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice/events",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "435bd501-08c1-515d-bbab-1292a15aed19",
+      "name": "Bridge events (webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        400
+      ],
+      "webhookId": "879bbff2-acd8-5d44-9e46-5002b59f8bf4"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "76d60e56-f566-56aa-8217-b7c18011f195",
+              "leftValue": "={{ !!$env.VOICE_BRIDGE_SECRET && $json.headers['x-bridge-secret'] === $env.VOICE_BRIDGE_SECRET }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "a375532c-54d5-5d15-aacf-92cf1f8cac14",
+      "name": "From the bridge?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        260,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.voice_log_event($1, $2::jsonb) AS res;",
+        "options": {
+          "queryReplacement": "={{ [ 'bridge', JSON.stringify($json.body) ] }}"
+        }
+      },
+      "id": "5717890c-3e9a-5e85-8d9e-78b57ca89586",
+      "name": "Log bridge event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        520,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.res || { ok: false } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "35d3e10c-176a-5196-acc4-0ad8be997745",
+      "name": "Bridge event logged",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        780,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { error: 'unauthorized' } }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "7ec81302-aca0-5dcf-b1c0-e16d51262471",
+      "name": "Bridge refused",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        520,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vapi/events",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "ac2f5fd0-f1b0-540d-8fb7-4d54ad00683c",
+      "name": "Vapi server messages (webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        1000
+      ],
+      "webhookId": "94bbe4a1-2def-5529-a164-9c77e545d1bd"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "14f70293-03f3-5367-87ad-e13ffceafaf8",
+              "leftValue": "={{ !!$env.VAPI_SERVER_SECRET && $json.headers['x-vapi-secret'] === $env.VAPI_SERVER_SECRET }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "fe52ca86-38ae-5192-b009-5cf6996a9e92",
+      "name": "From Vapi?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        260,
+        1000
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 3,
+        "output": "={{ ['tool-calls', 'end-of-call-report'].includes($json.body?.message?.type) ? ['tool-calls', 'end-of-call-report'].indexOf($json.body.message.type) : 2 }}"
+      },
+      "id": "ee14deb1-d28e-5f8b-91e7-b5095c9560fd",
+      "name": "Message type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        520,
+        1000
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { error: 'unauthorized' } }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "4948b7ae-9522-5dc3-b6b7-0c181589ac65",
+      "name": "Vapi refused",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        520,
+        1400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.github.com/users/Harsh-DevOps117/repos?sort=updated&per_page=15&type=owner",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "user-agent",
+              "value": "tori-voice"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 8000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "65028521-35c0-51c2-a561-1be393afe233",
+      "name": "GitHub · public repos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        800
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Vapi expects { results: [{ toolCallId, name, result }] }, result as a string, for every tool call it sent\nconst msg = $('Message type').first().json.body.message;\nconst calls = msg.toolCallList || msg.toolCalls || (msg.toolWithToolCallList || []).map((t) => t.toolCall) || [];\nconst gh = $input.first().json;\nconst repos = gh.statusCode === 200 && Array.isArray(gh.body) ? gh.body.filter((r) => !r.fork) : null;\nconst projects = () => {\n  if (!repos) return 'GitHub could not be reached right now. His profile is github.com/Harsh-DevOps117.';\n  return repos.slice(0, 10).map((r) => [\n    r.name, r.description || 'no description', r.language ? `written mostly in ${r.language}` : '',\n    r.stargazers_count ? `${r.stargazers_count} stars` : '', `updated ${String(r.pushed_at || '').slice(0, 10)}`,\n  ].filter(Boolean).join(', ')).join('\\n');\n};\nconst results = calls.map((c) => {\n  const name = c.function?.name || c.name;\n  const result = name === 'get_github_projects' ? projects() : `Unknown tool ${name}.`;\n  return { toolCallId: c.id, name, result };\n});\nreturn [{ json: { results } }];\n"
+      },
+      "id": "f9f6ab96-ab99-5d3a-8949-1c0a32af61d4",
+      "name": "Answer tool calls",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "c1eb10b1-aa0c-5cfe-986f-8bf90b2b2702",
+      "name": "Tool results",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1300,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.voice_log_report($1::jsonb) AS res;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json.body.message) }}"
+        }
+      },
+      "id": "5b054df0-019a-5a67-9a01-67dfa88569b0",
+      "name": "Log end-of-call report",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        780,
+        1000
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "8abff12f-ee78-5a47-81d8-6ccdf2e56d7c",
+      "name": "Report logged",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1040,
+        1000
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "22a84603-0a3c-57a3-bb7d-ecd8d5f44aa3",
+      "name": "Other message: ok",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        780,
+        1200
+      ]
+    }
+  ],
+  "connections": {
+    "Call webhook from 06": {
+      "main": [
+        [
+          {
+            "node": "Forward to voice bridge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forward to voice bridge": {
+      "main": [
+        [
+          {
+            "node": "One row per call event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One row per call event": {
+      "main": [
+        [
+          {
+            "node": "Log Meta call event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bridge events (webhook)": {
+      "main": [
+        [
+          {
+            "node": "From the bridge?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "From the bridge?": {
+      "main": [
+        [
+          {
+            "node": "Log bridge event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Bridge refused",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log bridge event": {
+      "main": [
+        [
+          {
+            "node": "Bridge event logged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vapi server messages (webhook)": {
+      "main": [
+        [
+          {
+            "node": "From Vapi?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "From Vapi?": {
+      "main": [
+        [
+          {
+            "node": "Message type",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Vapi refused",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message type": {
+      "main": [
+        [
+          {
+            "node": "GitHub · public repos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log end-of-call report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Other message: ok",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub · public repos": {
+      "main": [
+        [
+          {
+            "node": "Answer tool calls",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer tool calls": {
+      "main": [
+        [
+          {
+            "node": "Tool results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log end-of-call report": {
+      "main": [
+        [
+          {
+            "node": "Report logged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Asia/Kolkata"
+  },
+  "pinData": {},
+  "tags": [],
+  "active": false
+}

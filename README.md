@@ -22,6 +22,7 @@ docker compose up -d        # postgres → migrations → n8n bootstrap → n8n 
 | Mock Google Calendar + WhatsApp inbox | http://localhost:8090 (only with `COMPOSE_PROFILES=mock`) |
 | Partner board (every partner request, live) | http://localhost:3001 (`BOARD_PORT`) |
 | Postgres | `localhost:5433`, db `tori`, user `tori_app` |
+| Harsh AI voice page / voice bridge | http://localhost:3001/voice · http://localhost:8099/health ([docs/VOICE.md](docs/VOICE.md)) |
 | Inbound webhook (Postmark) | `POST /webhook/inbound/postmark`, basic auth `INBOUND_WEBHOOK_*` |
 | Admin API | `POST /webhook/admin/{venues,calendar-test,reprocess}`, header `X-Tori-Admin-Key` |
 
@@ -350,6 +351,27 @@ look as ToriGoogle's web app (fonts, colours, components). JSON: `GET /api/reque
   to its "Looking for a partner" reply and to the "hi" menu. Anyone with the link can see the board. The
   address changes when the `board-tunnel` container restarts: run the script again.
 - Develop: `cd web && npm install && DATABASE_URL=postgres://tori_app:<TORI_DB_PASSWORD>@localhost:5433/tori npm run dev`.
+
+## Harsh AI voice assistant (web page + WhatsApp calls)
+
+The Vapi assistant "Harsh AI" (questions about Harsh Kharwar) is reachable in two ways:
+
+- **On the web**, at **`/voice`** on the board app, through `@vapi-ai/web`.
+- **On WhatsApp**, by calling the bot's number.
+
+For WhatsApp, Meta's Calling API sends a `calls` webhook to workflow 06, which hands it to workflow 13.
+Workflow 13 passes it to **voice-bridge** ([voice-bridge/](voice-bridge/)). The bridge answers the WebRTC
+offer and streams the audio both ways to Vapi's WebSocket transport, one isolated session per call. Audio
+never goes through n8n. No Twilio.
+
+- Setup (Vapi keys, Meta calling, `.env`), architecture, tests, deployment and troubleshooting:
+  **[docs/VOICE.md](docs/VOICE.md)**.
+- SQL: [015_voice_calls.sql](db/migrations/015_voice_calls.sql) and its `.repeatable.sql`. Calls are in
+  `SELECT * FROM public.v_voice_calls;`.
+- Tests:
+  - `cd voice-bridge && npm test`: 20 tests, including real WebRTC with two concurrent calls;
+  - `db/tests/voice_calls.sql`: 13 checks;
+  - `cd web && npm test`.
 
 ## Editing workflows
 
