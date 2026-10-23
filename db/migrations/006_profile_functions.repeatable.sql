@@ -84,6 +84,7 @@ LANGUAGE plpgsql AS $$
 DECLARE
   u    public.tori_users;
   v_step text;
+  v_name_step text;
 BEGIN
   IF coalesce(p_wa_id, '') !~ '^[1-9]\d{5,14}$' THEN
     RETURN jsonb_build_object('duplicate', false);     -- status update or unknown payload: let it through
@@ -92,6 +93,9 @@ BEGIN
   -- in the middle of adding a ToriPay payee (014): the bot sends the answer there; bank account numbers
   -- are not kept in the message log
   SELECT d.step INTO v_step FROM public.toripay_drafts d WHERE d.user_id = u.id AND d.expires_at > now();
+  -- waiting for "Please confirm your name" (017): the bot reads the answer before anything else
+  SELECT s.name_step INTO v_name_step FROM public.tori_conversation_state s
+   WHERE s.user_id = u.id AND s.name_asked_at > now() - interval '1 day';
   INSERT INTO public.tori_messages (user_id, wa_message_id, direction, type, body)
   VALUES (u.id, nullif(p_message_id, ''), 'in', nullif(p_type, ''),
           CASE WHEN v_step IN ('account', 'account_confirm') AND regexp_replace(coalesce(p_body, ''), '[\s.-]', '', 'g') ~ '\d{6,}' THEN '[bank account number]'
@@ -103,7 +107,7 @@ BEGIN
   -- any message reopens WhatsApp's 24-hour window: the match flow checks last_message_at
   UPDATE public.partner_requests SET last_message_at = now()
    WHERE wa_id = p_wa_id AND status IN ('draft', 'pending_profile', 'open', 'proposed');
-  RETURN jsonb_build_object('user_id', u.id, 'duplicate', false, 'toripay_step', v_step);
+  RETURN jsonb_build_object('user_id', u.id, 'duplicate', false, 'toripay_step', v_step, 'name_step', v_name_step);
 END $$;
 
 -- What the bot sent (profile questions and the replies that follow them).
@@ -180,7 +184,10 @@ BEGIN
   END IF;
 
   UPDATE public.tori_users SET
-    name        = coalesce(nullif(left(trim(p ->> 'name'), 60), ''), name),
+    -- "Yes, that's me" keeps the WhatsApp name without its emojis ("🔥Rocky🔥" → "Rocky", 017)
+    name        = coalesce(nullif(left(trim(p ->> 'name'), 60), ''),
+                           CASE WHEN coalesce((p ->> 'name_confirm')::boolean, false) THEN coalesce(public.tori_clean_name(name), name) END,
+                           name),
     name_source = CASE WHEN nullif(trim(p ->> 'name'), '') IS NOT NULL
                          OR (coalesce((p ->> 'name_confirm')::boolean, false) AND name IS NOT NULL)
                        THEN 'user' ELSE name_source END,
@@ -248,22 +255,28 @@ BEGIN
   RETURN jsonb_build_object('complete', cardinality(v_miss) = 0, 'missing', to_jsonb(v_miss), 'next', v_miss[1],
                             'name', CASE WHEN u.name_source = 'user' THEN u.name END,
                             -- the WhatsApp name, offered as a one-tap answer to "What's your name?"
-                            'wa_first', nullif(substring(split_part(trim(coalesce(u.name, '')), ' ', 1) FROM '^\w{1,20}$'), ''),
+                            'wa_first', public.tori_first_name(u.name),
                             'error', v_err, 'resume', v_res);
 END $$;
 
--- A tap on an onboarding button (pf_…): name_wa, gender_<male|female|other>, skip_<social|photo|about>,
--- priv_<before|after>. Same result as tori_save_profile.
+-- A tap on an onboarding button (pf_…): name_wa ("Yes, that's me"), name_no ("No, change it": the next text
+-- is their name, 017 → ask_name), gender_<male|female|other>, skip_<social|photo|about>, priv_<before|after>.
+-- Same result as tori_save_profile.
 CREATE OR REPLACE FUNCTION public.tori_profile_button(p_wa_id text, p_id text)
 RETURNS jsonb
-LANGUAGE sql AS $$
-  SELECT public.tori_save_profile(p_wa_id, CASE
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF p_id = 'pf_name_no' THEN
+    PERFORM public.tori_name_ask_type(p_wa_id, '{"kind": "onboarding"}');
+    RETURN public.tori_save_profile(p_wa_id, '{}') || '{"ask_name": true}';
+  END IF;
+  RETURN public.tori_save_profile(p_wa_id, CASE
     WHEN p_id = 'pf_name_wa'       THEN '{"name_confirm": true}'::jsonb
     WHEN p_id LIKE 'pf\_gender\_%' THEN jsonb_build_object('gender', substr(p_id, 11))
     WHEN p_id LIKE 'pf\_skip\_%'   THEN jsonb_build_object('skip', substr(p_id, 9))
     WHEN p_id LIKE 'pf\_priv\_%'   THEN jsonb_build_object('privacy', substr(p_id, 9))
     ELSE '{}'::jsonb END);
-$$;
+END $$;
 
 -- "About you", typed or transcribed from a voice note (p_source 'text' / 'voice'). p_extracted is the
 -- LLM's reading of it: { summary, skill_level, interests }. The summary (no numbers, emails or links)

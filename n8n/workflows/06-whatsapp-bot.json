@@ -6034,7 +6034,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"recipient_type\": \"individual\",\n  \"to\": \"{{ $('WhatsApp Trigger').first().json.messages[0].from }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"preview_url\": false,\n    \"body\": \"Love it! Let's find your ideal 1:1 partner. 🤝 Tell me a bit about yourself to get started:\n\n🎂 Age\n\n🎓 Education\n\n✨ Hobbies\n\n📍 City, Area\n\nJust type it out naturally, and I'll handle the matchmaking! 🚀\"\n  }\n}",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: $('WhatsApp Trigger').first().json.messages[0].from, type: 'text', text: { preview_url: false, body: \"Love it! Let's find your ideal 1:1 partner. 🤝 Tell me a bit about yourself to get started:\\n\\n🎂 Age\\n\\n🎓 Education\\n\\n✨ Hobbies\\n\\n📍 City, Area\\n\\nJust type it out naturally, and I'll handle the matchmaking! 🚀\" } }) }}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -8331,7 +8331,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// The next onboarding step (public.tori_save_profile → next), or the request picked up again once complete.\nconst r = $json.res || {};\nconst to = $json.to;\nconst first = $json.first === true || $json.first === 't';\nconst nm = (r.name || '').trim().split(/\\s+/)[0];\nconst hi = nm ? ' ' + nm : '';\n// the partner board (web/), filtered to this game, when it has a public address (scripts/board-tunnel.sh)\nconst BOARD = ($env.BOARD_PUBLIC_URL || '').replace(/\\/+$/, '');\nconst boardLine = (a, c) => BOARD\n  ? `\\n\\n👀 See who else is playing: ${BOARD}/?activity=${encodeURIComponent(a)}${c ? '&city=' + encodeURIComponent(c) : ''}` : '';\nconst CHECK = \"\\n\\nNo word from me before you head out? Send *any match?* and I'll check 🔎\";\nconst text = (t) => ({ type: 'text', text: { preview_url: false, body: t } });\nconst buttons = (t, bs) => ({ type: 'interactive', interactive: { type: 'button', body: { text: t },\n  action: { buttons: bs.map(([id, title]) => ({ type: 'reply', reply: { id, title } })) } } });\nconst QUESTIONS = {\n  name: () => (r.wa_first ? buttons(\"What's your name?\", [['pf_name_wa', r.wa_first]]) : text(\"What's your name?\")),\n  age: () => text(`${nm ? `Nice to meet you, ${nm}! ` : ''}How old are you?`),\n  gender: () => buttons('And your gender?', [['pf_gender_male', 'Male'], ['pf_gender_female', 'Female'], ['pf_gender_other', 'Other']]),\n  interests: () => text('What do you like to play or do? (e.g. badminton, football, running)'),\n  social: () => buttons(\"Add your Instagram or LinkedIn so partners know who they're meeting: paste the link or your @handle.\\n\\n\"\n                        + 'If it\\'s Instagram, make sure your profile is *public* 🔓 so your matches can actually see it.',\n                        [['pf_skip_social', 'Skip']]),\n  photo: () => buttons('Send a profile photo 📷', [['pf_skip_photo', 'Skip']]),\n  about: () => buttons('Last one, and it really helps me find you better matches ⭐\\n\\n'\n                       + 'Tell me a bit about yourself: how often you play, your level, what kind of partner you\\'re looking for, '\n                       + 'when you\\'re usually free. *Type it or send a voice note* 🎙️\\n\\n'\n                       + \"I'll share a short summary with the people you match with.\", [['pf_skip_about', 'Skip']]),\n  privacy: () => buttons('Who can see your photo and link before you both agree to connect?',\n                         [['pf_priv_before', 'Anyone I match with'], ['pf_priv_after', 'Only after both yes']]),\n};\nconst prefix = (body, p) => {\n  if (body.type === 'text') body.text.body = p + body.text.body; else body.interactive.body.text = p + body.interactive.body.text;\n  return body;\n};\nlet body, request_id = '';\nif (r.error === 'bad_social') {\n  body = buttons(\"That doesn't look like an Instagram or LinkedIn link. Send the link or your @handle, or tap Skip.\", [['pf_skip_social', 'Skip']]);\n} else if (r.error === 'bad_about') {\n  body = buttons(\"I couldn't make that out 🙈 Type a few words about yourself or send another voice note, or tap Skip.\", [['pf_skip_about', 'Skip']]);\n} else if (r.error === 'bad_photo') {\n  body = buttons(\"I couldn't use that photo (JPG or PNG, up to 5 MB). Send another one, or tap Skip.\", [['pf_skip_photo', 'Skip']]);\n} else if (!r.complete) {\n  body = (QUESTIONS[r.next] || QUESTIONS.name)();\n  if ($json.route === 'hold' && first) {\n    body = prefix(body, 'Before I start looking, a few quick questions so I can find you the right partner 🙂\\n\\n');\n  } else if ($json.route === 'join') {\n    body = prefix(body, 'Before I send your request to join, a few quick questions so the host knows who you are 🙂\\n\\n');\n  }\n} else {\n  const done = `Thanks${hi}, you're all set ✅\\n\\n`;\n  const s = r.resume;\n  if (s && s.action === 'open') {\n    const now = DateTime.now().setZone('Asia/Kolkata');\n    const d = DateTime.fromISO(s.play_date, { zone: 'Asia/Kolkata' });\n    const day = d.hasSame(now, 'day') ? 'today' : d.hasSame(now.plus({ days: 1 }), 'day') ? 'tomorrow' : 'on ' + d.toFormat('ccc, d LLL');\n    body = text(done + `Got it! Looking for a ${s.activity.replace(/_/g, ' ')} partner ${day} ${s.time_label} in ${s.area}. `\n                + \"I'll message you here as soon as I find someone 🙌\"\n                + `\\n\\n👥 ${s.spots || 1} ${(s.spots || 1) === 1 ? 'spot' : 'spots'} · reply *spots 3* to let more people join`\n                + CHECK + boardLine(s.activity, s.city));\n    request_id = s.request_id;\n  } else if (s && s.join_code && !s.action) {\n    body = text(done + 'Now sending your request to join the game ⏳');\n  } else if (s && s.action === 'ask' && s.text) {\n    body = text(done + 'Now, about your request: ' + s.text);\n  } else {\n    body = text(done + 'Tell me what you want to play, when and where, e.g. \"Football today at 6 PM in Indiranagar, Bangalore\"');\n  }\n}\n// \"about you\" was just saved: show what matches will see\nif (r.about_summary && !r.error) body = prefix(body, `Got it 🙌 Here's what I'll share: “${r.about_summary}”\\n\\n`);\nconst plain = body.type === 'text' ? body.text.body : body.interactive.body.text;\nreturn { json: { to, body, text: plain, request_id, join_code: (r.resume && r.resume.join_code) || '' } };\n"
+        "jsCode": "// The next onboarding step (public.tori_save_profile → next), or the request picked up again once complete.\nconst r = $json.res || {};\nconst to = $json.to;\nconst first = $json.first === true || $json.first === 't';\nconst nm = (r.name || '').trim().split(/\\s+/)[0];\nconst hi = nm ? ' ' + nm : '';\n// the partner board (web/), filtered to this game, when it has a public address (scripts/board-tunnel.sh)\nconst BOARD = ($env.BOARD_PUBLIC_URL || '').replace(/\\/+$/, '');\nconst boardLine = (a, c) => BOARD\n  ? `\\n\\n👀 See who else is playing: ${BOARD}/?activity=${encodeURIComponent(a)}${c ? '&city=' + encodeURIComponent(c) : ''}` : '';\nconst CHECK = \"\\n\\nNo word from me before you head out? Send *any match?* and I'll check 🔎\";\nconst text = (t) => ({ type: 'text', text: { preview_url: false, body: t } });\nconst buttons = (t, bs) => ({ type: 'interactive', interactive: { type: 'button', body: { text: t },\n  action: { buttons: bs.map(([id, title]) => ({ type: 'reply', reply: { id, title } })) } } });\nconst QUESTIONS = {\n  // the name from their WhatsApp profile, to confirm or change (017): many profile names aren't real names\n  name: () => (r.wa_first\n    ? buttons(`Could you please confirm your name? 🙂\\n\\nOther users will see you as: *${r.wa_first}*\\n\\nIs this correct?`,\n              [['pf_name_wa', \"Yes, that's me\"], ['pf_name_no', 'No, change it']])\n    : text(\"May I know your name? 🙂 Please type the name you'd like other users to see.\")),\n  age: () => text(`${nm ? `Nice to meet you, ${nm}! ` : ''}How old are you?`),\n  gender: () => buttons('And your gender?', [['pf_gender_male', 'Male'], ['pf_gender_female', 'Female'], ['pf_gender_other', 'Other']]),\n  interests: () => text('What do you like to play or do? (e.g. badminton, football, running)'),\n  social: () => buttons(\"Add your Instagram or LinkedIn so partners know who they're meeting: paste the link or your @handle.\\n\\n\"\n                        + 'If it\\'s Instagram, make sure your profile is *public* 🔓 so your matches can actually see it.',\n                        [['pf_skip_social', 'Skip']]),\n  photo: () => buttons('Send a profile photo 📷', [['pf_skip_photo', 'Skip']]),\n  about: () => buttons('Last one, and it really helps me find you better matches ⭐\\n\\n'\n                       + 'Tell me a bit about yourself: how often you play, your level, what kind of partner you\\'re looking for, '\n                       + 'when you\\'re usually free. *Type it or send a voice note* 🎙️\\n\\n'\n                       + \"I'll share a short summary with the people you match with.\", [['pf_skip_about', 'Skip']]),\n  privacy: () => buttons('Who can see your photo and link before you both agree to connect?',\n                         [['pf_priv_before', 'Anyone I match with'], ['pf_priv_after', 'Only after both yes']]),\n};\nconst prefix = (body, p) => {\n  if (body.type === 'text') body.text.body = p + body.text.body; else body.interactive.body.text = p + body.interactive.body.text;\n  return body;\n};\nlet body, request_id = '';\nif (r.error === 'bad_social') {\n  body = buttons(\"That doesn't look like an Instagram or LinkedIn link. Send the link or your @handle, or tap Skip.\", [['pf_skip_social', 'Skip']]);\n} else if (r.error === 'bad_about') {\n  body = buttons(\"I couldn't make that out 🙈 Type a few words about yourself or send another voice note, or tap Skip.\", [['pf_skip_about', 'Skip']]);\n} else if (r.error === 'bad_photo') {\n  body = buttons(\"I couldn't use that photo (JPG or PNG, up to 5 MB). Send another one, or tap Skip.\", [['pf_skip_photo', 'Skip']]);\n} else if (r.ask_name) {\n  body = text(\"No problem! Please type the name you'd like other users to see 🙂\");\n} else if (!r.complete) {\n  body = (QUESTIONS[r.next] || QUESTIONS.name)();\n  if ($json.route === 'hold' && first) {\n    body = prefix(body, 'Before I start looking, a few quick questions so I can find you the right partner 🙂\\n\\n');\n  } else if ($json.route === 'join') {\n    body = prefix(body, 'Before I send your request to join, a few quick questions so the host knows who you are 🙂\\n\\n');\n  }\n} else {\n  const done = `Thanks${hi}, you're all set ✅\\n\\n`;\n  const s = r.resume;\n  if (s && s.action === 'open') {\n    const now = DateTime.now().setZone('Asia/Kolkata');\n    const d = DateTime.fromISO(s.play_date, { zone: 'Asia/Kolkata' });\n    const day = d.hasSame(now, 'day') ? 'today' : d.hasSame(now.plus({ days: 1 }), 'day') ? 'tomorrow' : 'on ' + d.toFormat('ccc, d LLL');\n    body = text(done + `Got it! Looking for a ${s.activity.replace(/_/g, ' ')} partner ${day} ${s.time_label} in ${s.area}. `\n                + \"I'll message you here as soon as I find someone 🙌\"\n                + `\\n\\n👥 ${s.spots || 1} ${(s.spots || 1) === 1 ? 'spot' : 'spots'} · reply *spots 3* to let more people join`\n                + CHECK + boardLine(s.activity, s.city));\n    request_id = s.request_id;\n  } else if (s && s.join_code && !s.action) {\n    body = text(done + 'Now sending your request to join the game ⏳');\n  } else if (s && s.action === 'ask' && s.text) {\n    body = text(done + 'Now, about your request: ' + s.text);\n  } else {\n    body = text(done + 'Tell me what you want to play, when and where, e.g. \"Football today at 6 PM in Indiranagar, Bangalore\"');\n  }\n}\n// the name they typed after \"No, change it\" was just saved (Name answer, section 18)\n// (the age question already says \"Nice to meet you, <name>!\")\nif (r.name_saved && r.next !== 'age') body = prefix(body, `Thank you, *${r.name_saved}*! ✅\\n\\n`);\n// \"about you\" was just saved: show what matches will see\nif (r.about_summary && !r.error) body = prefix(body, `Got it 🙌 Here's what I'll share: “${r.about_summary}”\\n\\n`);\nconst plain = body.type === 'text' ? body.text.body : body.interactive.body.text;\nreturn { json: { to, body, text: plain, request_id, join_code: (r.resume && r.resume.join_code) || '' } };\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -10514,6 +10514,321 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6d4b3197-3512-5e58-8681-eb5d536b8915",
+              "leftValue": "={{ (($json.messages?.[0]?.interactive?.button_reply?.id) || '').startsWith('nm_') || ($json.messages?.[0]?.type === 'text' && (($('Log inbound message').first().json.res?.name_step === 'type' && !/^\\s*(hi+|hello|hey|menu|start)\\W*$/i.test($json.messages[0].text?.body || '')) || ($('Log inbound message').first().json.res?.name_step === 'confirm' && /^\\s*(yes|y|yeah|yep|yup|haa*n?|ji|ji haan|correct|right|sahi|no|n|nope|nah|nahi|nahin|na|cancel|stop)\\s*[.!]*\\s*$/i.test($json.messages[0].text?.body || '')))) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        600,
+        7952
+      ],
+      "id": "54a70eb4-c845-586e-b4fc-12448950ae2c",
+      "name": "Name answer?"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const msg = $json.messages[0];\nconst id = msg.interactive?.button_reply?.id || '';\nconst t = (msg.text?.body || '').trim();\nconst step = $('Log inbound message').first().json.res?.name_step;\nconst answer = id === 'nm_yes' ? 'yes' : id === 'nm_no' ? 'no'\n  : /^\\s*(cancel|stop)\\W*$/i.test(t) ? 'cancel'\n  : step === 'confirm' ? (/^\\s*(no|n|nope|nah|nahi|nahin|na)\\b/i.test(t) ? 'no' : 'yes') : 'text';\nreturn { json: { wa: msg.from, answer, text: t } };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1504,
+        22384
+      ],
+      "id": "5da4f793-5959-5860-9f34-a5c78e7de7c4",
+      "name": "Read name answer"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.tori_name_answer($1, $2, nullif($3, '')) AS r, $1 AS \"to\";",
+        "options": {
+          "queryReplacement": "={{ [ $json.wa, $json.answer, $json.text ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1244,
+        22384
+      ],
+      "id": "9c57fdce-6a2a-5773-8ca8-a3813f5d8f25",
+      "name": "Save name answer",
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $json.r || {};\nconst to = $json.to;\n// onboarding asked for the name: its next question follows (Build profile reply)\nif (r.profile) return [{ json: { go: 'profile', res: { ...r.profile, name_saved: r.name }, to, route: 'profile', first: false } }];\nconst nm = r.name ? `*${r.name}*` : '';\nconst t = {\n  confirmed: `Thank you, ${nm}! ✅`,\n  saved: `Thank you, ${nm}! ✅ Other users will see you as ${nm}.`,\n  ask_type: \"No problem! Please type the name you'd like other users to see 🙂\",\n  bad_name: \"Sorry, that doesn't look like a name 🙈 Please type just your name, for example *Priya*. (Send *cancel* to stop.)\",\n  cancelled: 'Okay, no problem 👍 Message me any time.',\n}[r.state] || (nm ? `You're all set, ${nm} ✅` : \"You're all set ✅\");\nconst done = ['confirmed', 'saved'].includes(r.state);\nreturn [{ json: { go: 'reply', to, body: { type: 'text', text: { preview_url: false, body: t } },\n                  replay: done && r.resume?.kind === 'replay' ? r.resume.trigger : null } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -984,
+        22384
+      ],
+      "id": "6596bc36-648f-5040-a952-ce418a118233",
+      "name": "Name answer reply"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0e338167-4c10-57fa-9ca1-a2d1ba47160f",
+              "leftValue": "={{ $json.go === 'profile' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -724,
+        22384
+      ],
+      "id": "4e84e9b9-15e5-5e5c-9ac3-b1e7a1bc2e23",
+      "name": "Name for onboarding?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BOT_WHATSAPP_GRAPH_URL || 'https://graph.facebook.com/v19.0' }}/{{ $env.BOT_WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', to: $json.to, ...$json.body }) }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -464,
+        22484
+      ],
+      "id": "a42b3799-0bd6-5953-b134-24874f01dcfd",
+      "name": "Send name reply",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "toriWhatsAppHdr1",
+          "name": "WhatsApp Cloud API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst trig = $('Name answer reply').first().json.replay;\nconst msg = trig?.messages?.[0];\nif (!msg) return [];\nconst value = { messaging_product: 'whatsapp', metadata: trig.metadata || {}, contacts: trig.contacts || [],\n                messages: [{ ...msg, id: msg.id + '.named', timestamp: String(Math.floor(Date.now() / 1000)) }] };\nconst raw = JSON.stringify({ object: 'whatsapp_business_account',\n                             entry: [{ id: 'name-replay', changes: [{ field: 'messages', value }] }] });\nconst signature = 'sha256=' + crypto.createHmac('sha256', $env.BOT_META_APP_SECRET || '').update(raw).digest('hex');\nreturn [{ json: { raw, signature } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -204,
+        22484
+      ],
+      "id": "8212ec63-5501-54d7-b99f-e1d334a37130",
+      "name": "Replay after name"
+    },
+    {
+      "parameters": {
+        "jsCode": "// which service, and the message to replay once the name is confirmed\nconst trig = $('WhatsApp Trigger').first().json;\nconst msg = trig.messages[0];\nconst it = $input.first().json;\nlet service = 'partner', check = true;\nif (it.route === 'legacy') service = 'legacy';\n// travel: only a new request; answers inside the travel flow (consent, block, the trip form…) go straight on\nelse if (it.intent !== undefined) { service = 'travel'; check = ['travel_start', 'travel_partner'].includes(it.intent); }\nelse if (/connect/i.test(msg.interactive?.list_reply?.title || '')) service = 'connect';\nreturn [{ json: { wa: msg.from, name: (trig.contacts?.[0]?.profile?.name || '').trim(), service, check, payload: it,\n  resume: { kind: 'replay', trigger: { metadata: trig.metadata || {}, contacts: trig.contacts || [], messages: [msg] } } } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1504,
+        22884
+      ],
+      "id": "d9d19c0a-9baa-5ba4-83fa-574d80898f6e",
+      "name": "Name gate input"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.tori_name_gate($1, nullif($2, ''), $3::jsonb, $4::boolean) AS g;",
+        "options": {
+          "queryReplacement": "={{ [ $json.wa, $json.name, JSON.stringify($json.resume), String($json.check) ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1244,
+        22884
+      ],
+      "id": "37c74641-7be3-554d-a4d5-8b8fa96d0489",
+      "name": "Check name",
+      "credentials": {
+        "postgres": {
+          "id": "xzG9f2LEMKhGXmqg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b5574a70-b608-5a3a-b935-29eac2740ba0",
+              "leftValue": "={{ $json.g?.confirmed === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -984,
+        22884
+      ],
+      "id": "96242efb-2e79-5caa-bc63-d97395b5d4ec",
+      "name": "Name confirmed?"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $('Name gate input').first().json.payload }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -724,
+        22784
+      ],
+      "id": "435e9c0e-466a-57aa-9a6c-e6ee3c6f1682",
+      "name": "Continue service"
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 4,
+        "output": "={{ [\"partner\", \"connect\", \"legacy\", \"travel\"].indexOf($('Name gate input').first().json.service) }}"
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -464,
+        22784
+      ],
+      "id": "9edeca15-da88-588d-9753-13544c7c97b9",
+      "name": "Service"
+    },
+    {
+      "parameters": {
+        "jsCode": "const g = $json.g;\nconst gate = $('Name gate input').first().json;\nconst why = { partner: 'Before I look for a partner', connect: 'Before I look for like-minded people',\n              legacy: 'Before I look for like-minded people', travel: 'Before I look for a travel buddy' }[gate.service];\nconst body = g.step === 'confirm'\n  ? { type: 'interactive', interactive: { type: 'button',\n      body: { text: `${why}, could you please confirm your name? 🙂\\n\\nOther users will see you as: *${g.name}*\\n\\nIs this correct?` },\n      action: { buttons: [ { type: 'reply', reply: { id: 'nm_yes', title: \"Yes, that's me\" } },\n                           { type: 'reply', reply: { id: 'nm_no', title: 'No, change it' } } ] } } }\n  : { type: 'text', text: { preview_url: false, body: `${why}, may I know your name? 🙂\\n\\nPlease type the name you'd like other users to see.` } };\nreturn [{ json: { to: gate.wa, body } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -724,
+        22984
+      ],
+      "id": "ce901711-efeb-556b-9013-0f5e445853fb",
+      "name": "Name question"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BOT_WHATSAPP_GRAPH_URL || 'https://graph.facebook.com/v19.0' }}/{{ $env.BOT_WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', to: $json.to, ...$json.body }) }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -464,
+        22984
+      ],
+      "id": "5ebe8c98-42a1-52f6-b279-d0b7b8ad1261",
+      "name": "Send name question",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "toriWhatsAppHdr1",
+          "name": "WhatsApp Cloud API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
         "content": "## Held messages\nSQL: db/migrations/008_held_messages*.sql\n\n- WhatsApp only allows replies within 24 h of the user's last message (else a template)\n- Offers / updates for people outside it are kept (**Hold offer**, **Hold update**)\n- **Take held messages** sends them on the person's next message; \"any match?\" re-sends open offers\n- Set PARTNER_MATCH_TEMPLATE to an approved template name to send offers right away instead",
         "height": 260,
         "width": 620,
@@ -10525,7 +10840,7 @@
         -1504,
         17384
       ],
-      "id": "6d4b3197-3512-5e58-8681-eb5d536b8915",
+      "id": "8e6f539c-c4ad-5222-86b9-01f3727c94a5",
       "name": "Held messages (about)"
     },
     {
@@ -10542,7 +10857,7 @@
         600,
         7432
       ],
-      "id": "54a70eb4-c845-586e-b4fc-12448950ae2c",
+      "id": "b71e7c50-48d3-5cf9-a06f-aba450abb62c",
       "name": "Take held messages",
       "credentials": {
         "postgres": {
@@ -10562,7 +10877,7 @@
         840,
         7432
       ],
-      "id": "5da4f793-5959-5860-9f34-a5c78e7de7c4",
+      "id": "cb038f69-cc1e-52d9-98ef-ac00aed5dd2d",
       "name": "Held to send"
     },
     {
@@ -10590,7 +10905,7 @@
         1080,
         7432
       ],
-      "id": "9c57fdce-6a2a-5773-8ca8-a3813f5d8f25",
+      "id": "0289eb5b-8044-5ce0-9564-1aec3ab539fd",
       "name": "Send held message",
       "credentials": {
         "httpHeaderAuth": {
@@ -10614,7 +10929,7 @@
         -204,
         17684
       ],
-      "id": "6596bc36-648f-5040-a952-ce418a118233",
+      "id": "b577a030-f4cd-50a4-9988-adc98190c965",
       "name": "Partner status",
       "credentials": {
         "postgres": {
@@ -10634,7 +10949,7 @@
         56,
         17684
       ],
-      "id": "0e338167-4c10-57fa-9ca1-a2d1ba47160f",
+      "id": "ba2ea2d1-bfc4-57bc-bb76-c7a386a4efff",
       "name": "Build status reply"
     },
     {
@@ -11436,14 +11751,14 @@
         ],
         [
           {
-            "node": "share locn msg1",
+            "node": "Name gate input",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Ask partner details",
+            "node": "Name gate input",
             "type": "main",
             "index": 0
           }
@@ -12817,7 +13132,7 @@
         ],
         [
           {
-            "node": "Partner-matching- get back msg",
+            "node": "Name gate input",
             "type": "main",
             "index": 0
           }
@@ -12838,7 +13153,7 @@
         ],
         [
           {
-            "node": "Travel assistant",
+            "node": "Name gate input",
             "type": "main",
             "index": 0
           }
@@ -13128,7 +13443,7 @@
       "main": [
         [
           {
-            "node": "Travel assistant",
+            "node": "Name gate input",
             "type": "main",
             "index": 0
           }
@@ -13295,7 +13610,7 @@
       "main": [
         [
           {
-            "node": "Google?",
+            "node": "Name answer?",
             "type": "main",
             "index": 0
           },
@@ -14309,6 +14624,191 @@
         [
           {
             "node": "SERVICE TYPE LIST BUILDING",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Name answer?": {
+      "main": [
+        [
+          {
+            "node": "Read name answer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read name answer": {
+      "main": [
+        [
+          {
+            "node": "Save name answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save name answer": {
+      "main": [
+        [
+          {
+            "node": "Name answer reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Name answer reply": {
+      "main": [
+        [
+          {
+            "node": "Name for onboarding?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Name for onboarding?": {
+      "main": [
+        [
+          {
+            "node": "Build profile reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send name reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send name reply": {
+      "main": [
+        [
+          {
+            "node": "Replay after name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Replay after name": {
+      "main": [
+        [
+          {
+            "node": "Send to bot as text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Name gate input": {
+      "main": [
+        [
+          {
+            "node": "Check name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check name": {
+      "main": [
+        [
+          {
+            "node": "Name confirmed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Name confirmed?": {
+      "main": [
+        [
+          {
+            "node": "Continue service",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Name question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Continue service": {
+      "main": [
+        [
+          {
+            "node": "Service",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Service": {
+      "main": [
+        [
+          {
+            "node": "Ask partner details",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "share locn msg1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Partner-matching- get back msg",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Travel assistant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Name question": {
+      "main": [
+        [
+          {
+            "node": "Send name question",
             "type": "main",
             "index": 0
           }

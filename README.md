@@ -316,6 +316,25 @@ balance can never go below 0 ([012_wallet.sql](db/migrations/012_wallet.sql), `0
   - scenarios 10–11 of `scripts/profile_e2e.py` run the WhatsApp conversations (the harness runs the real
     web app against fake Razorpay and a fake IFSC directory).
 
+### "Please confirm your name" before matching
+
+Rules: `db/migrations/017_name_confirm*.sql`. Bot: section 18 of `plan/build_partner_workflow.py`.
+
+Many WhatsApp profile names aren't real names. Before anyone is matched the bot asks, once:
+*"Before I look for a partner, could you please confirm your name? Other users will see you as: Harsh. Is this
+correct?"* with **[Yes, that's me] [No, change it]**. "No" leads to *"Please type the name you'd like other users
+to see"*, and the typed name is saved to `tori_users` (`name_source = 'user'`).
+
+- **Asked before:** 🎯 Partner, 🤝 Connect and 🚕 Cab buddy from the menu, a partner, group or cab request typed
+  or spoken, and onboarding (the first question). Once confirmed, the bot carries on with what the person asked
+  for (the message is replayed), and never asks again.
+- **No usable WhatsApp name** (emojis, digits, "Busy 24x7"): the bot asks for the name straight away.
+- **Typed names are cleaned:** "my name is priya 😊" becomes *Priya*. "ok", digits, links and @handles are
+  refused politely. Typed "yes" / "no" work like the buttons, and "cancel" stops the question.
+- **Where it shows:** partner cards, the board and travel matches show the confirmed first name.
+- **Tests:** `db/tests/name_confirm.sql` (37 checks); `E2E_ONLY=name scripts/travel-e2e.sh`
+  (`scripts/name_e2e.py`, about 2 minutes).
+
 ### Referrals (invite a friend, both get 30 credits)
 
 Rules: `db/migrations/016_referrals*.sql`. Bot: section 17 of `plan/build_partner_workflow.py`.

@@ -115,7 +115,7 @@ def onboard(wa, name, answers, r):
         if "all set" in t:
             return r
         n = None
-        if "What's your name?" in t:
+        if 'confirm your name' in t or 'May I know your name' in t:
             n = send(wa, name, button='pf_name_wa') if answers.get('name') == 'button' else send(wa, name, answers['name'])
         elif 'How old' in t:
             n = send(wa, name, answers['age'])
@@ -142,7 +142,8 @@ def onboard(wa, name, answers, r):
 # ── 1. New user: the request is saved first, then one question at a time ───────────────────────
 n = send(P, 'Pranav Rao', 'I want to find a partner for badminton tomorrow 7 pm in HSR Layout, Bangalore')
 r = replies(P, n)
-check('quick questions' in last(r) and "What's your name?" in last(r) and button(r[-1], 'pf_name_wa'),
+check('quick questions' in last(r) and 'confirm your name' in last(r) and '*Pranav*' in last(r)
+      and button(r[-1], 'pf_name_wa') and button(r[-1], 'pf_name_no'),
       'P: asked for the name first, with a one-tap WhatsApp name')
 check(request_status(P) == 'pending_profile' and state(P) == 'awaiting_profile', 'P: request parked, awaiting profile')
 
@@ -219,7 +220,7 @@ check("It's a match" in last(rq) and f'wa.me/{P}' in last(rq) and 'instagram.com
 # ── 3. Incomplete request: after onboarding, the request question ───────────────────────────────
 n = send(R, 'Riya', 'find me a tennis partner')
 r = replies(R, n)
-check("What's your name?" in last(r), 'R: onboarding starts with the name')
+check('confirm your name' in last(r), 'R: onboarding starts with the name')
 n = send(R, 'Riya', 'Riya, 26, female, tennis and yoga')
 r = replies(R, n)
 r = onboard(R, 'Riya', {'social': None, 'photo': None, 'about': 'Total beginner at tennis, free on weekend mornings, would love a patient partner'}, r)
@@ -311,7 +312,8 @@ check(psql(f"SELECT array_to_string(joined_names, ',') || '|' || board_status FR
 
 # M joins, Kavya declines
 n = send(M, 'Mohan', f'JOIN {code}', llm=False)
-r = onboard(M, 'Mohan', {'name': 'Mohan, 31, male, football', **SKIP}, replies(M, n))
+# the LLM sometimes reads "football" here as the game, not an interest: then it's asked for
+r = onboard(M, 'Mohan', {'name': 'Mohan, 31, male, football', 'interests': 'football', **SKIP}, replies(M, n))
 nk = len(msgs(K))
 time.sleep(4)
 kc = next((m for m in reversed(msgs(K)) if button(m, 'pj_no_') and 'Mohan' in m['text']), None)

@@ -37,7 +37,9 @@ BEGIN
   END IF;
 
   UPDATE public.partner_requests SET
-    profile_name    = coalesce(p_name, profile_name),
+    -- the name they confirmed (017) beats the WhatsApp profile name the workflow passes in
+    profile_name    = coalesce((SELECT u.name FROM public.tori_users u WHERE u.phone = '+' || p_wa_id AND u.name_source = 'user'),
+                               p_name, profile_name),
     activity        = p ->> 'activity',
     city            = p ->> 'city',
     area            = p ->> 'area',

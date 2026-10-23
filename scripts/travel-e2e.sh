@@ -4,13 +4,14 @@
 #   - real Groq (LLM_API_KEY from .env), mock WhatsApp + mock geocoder + fake Razorpay (mock-apis)
 #   - the web app (ToriPay's /api/toripay/answer and payouts), port 13001
 #   - workflow 06 is imported as a copy whose WhatsApp Trigger is a plain webhook (POST /webhook/wa-test)
-# Runs the db/tests/*.sql scenarios, then scripts/travel_e2e.py, profile_e2e.py and referral_e2e.py
+# Runs the db/tests/*.sql scenarios, then scripts/travel_e2e.py, profile_e2e.py, name_e2e.py and referral_e2e.py
 # (~8 minutes: Groq free-tier pacing).
 #
 #   scripts/travel-e2e.sh          run, then remove the stack
 #   KEEP=1 scripts/travel-e2e.sh   leave it running afterwards (n8n UI: http://localhost:15678)
 #   E2E_ONLY=profile scripts/travel-e2e.sh    run only the profile conversation
 #   E2E_ONLY=referral scripts/travel-e2e.sh   run only the referral one (~1 minute, no LLM calls)
+#   E2E_ONLY=name scripts/travel-e2e.sh       run only "Please confirm your name" (~2 minutes)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
@@ -126,7 +127,7 @@ trap cleanup EXIT
 until curl -sf http://localhost:15678/healthz >/dev/null; do sleep 2; done
 sleep 5
 
-echo "── SQL scenarios (db/tests/travel_matching.sql, user_profiles.sql, held_messages.sql, matching_v2.sql, joins.sql, wallet.sql, toripay.sql, referrals.sql)"
+echo "── SQL scenarios (db/tests/travel_matching.sql, user_profiles.sql, held_messages.sql, matching_v2.sql, joins.sql, wallet.sql, toripay.sql, referrals.sql, name_confirm.sql)"
 docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/travel_matching.sql 2>&1 \
   | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
 docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/user_profiles.sql 2>&1 \
@@ -143,6 +144,8 @@ docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STO
   | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
 docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/referrals.sql 2>&1 \
   | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
+docker exec -i toritravel-postgres-1 psql -q -U tori_app -d tori -v ON_ERROR_STOP=1 < db/tests/name_confirm.sql 2>&1 \
+  | grep -E 'ok:|FAIL|ERROR' | sed 's/^psql:[^ ]* //'
 status=0
 if [ -z "${E2E_ONLY:-}" ]; then
   echo "── End to end (scripts/travel_e2e.py)"
@@ -151,6 +154,10 @@ fi
 if [ -z "${E2E_ONLY:-}" ] || [ "${E2E_ONLY:-}" = profile ]; then
   echo "── Profile onboarding end to end (scripts/profile_e2e.py)"
   python3 "$ROOT/scripts/profile_e2e.py" || status=1
+fi
+if [ -z "${E2E_ONLY:-}" ] || [ "${E2E_ONLY:-}" = name ]; then
+  echo "── Name confirmation end to end (scripts/name_e2e.py)"
+  python3 "$ROOT/scripts/name_e2e.py" || status=1
 fi
 if [ -z "${E2E_ONLY:-}" ] || [ "${E2E_ONLY:-}" = referral ]; then
   echo "── Referrals end to end (scripts/referral_e2e.py)"

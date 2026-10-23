@@ -91,6 +91,10 @@ def button(msg, prefix):
 
 A, B, C, D, E, F = '919811100001', '919811100002', '919811100003', '919811100004', '919811100005', '919811100006'
 http(MOCK + '/_reset', {})
+# names confirmed up front: "Please confirm your name" before matching is tested in scripts/name_e2e.py
+for wa, nm in ((A, 'Asha Verma'), (B, 'Bharat Singh'), (C, 'Chetan'), (D, 'Dev'), (E, 'Esha'), (F, 'Farhan')):
+    psql(f"SELECT public.tori_user('{wa}', '{nm}')")
+    psql(f"UPDATE tori_users SET name_source = 'user' WHERE phone = '+{wa}'")
 
 # ── spec §22: A with missing details ───────────────────────────────────────────────────────────
 _, n = send(A, 'Asha Verma', 'Bro I need someone to go to Naini tomorrow evening.')

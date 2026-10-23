@@ -939,7 +939,11 @@ const text = (t) => ({ type: 'text', text: { preview_url: false, body: t } });
 const buttons = (t, bs) => ({ type: 'interactive', interactive: { type: 'button', body: { text: t },
   action: { buttons: bs.map(([id, title]) => ({ type: 'reply', reply: { id, title } })) } } });
 const QUESTIONS = {
-  name: () => (r.wa_first ? buttons("What's your name?", [['pf_name_wa', r.wa_first]]) : text("What's your name?")),
+  // the name from their WhatsApp profile, to confirm or change (017): many profile names aren't real names
+  name: () => (r.wa_first
+    ? buttons(`Could you please confirm your name? 🙂\n\nOther users will see you as: *${r.wa_first}*\n\nIs this correct?`,
+              [['pf_name_wa', "Yes, that's me"], ['pf_name_no', 'No, change it']])
+    : text("May I know your name? 🙂 Please type the name you'd like other users to see.")),
   age: () => text(`${nm ? `Nice to meet you, ${nm}! ` : ''}How old are you?`),
   gender: () => buttons('And your gender?', [['pf_gender_male', 'Male'], ['pf_gender_female', 'Female'], ['pf_gender_other', 'Other']]),
   interests: () => text('What do you like to play or do? (e.g. badminton, football, running)'),
@@ -965,6 +969,8 @@ if (r.error === 'bad_social') {
   body = buttons("I couldn't make that out 🙈 Type a few words about yourself or send another voice note, or tap Skip.", [['pf_skip_about', 'Skip']]);
 } else if (r.error === 'bad_photo') {
   body = buttons("I couldn't use that photo (JPG or PNG, up to 5 MB). Send another one, or tap Skip.", [['pf_skip_photo', 'Skip']]);
+} else if (r.ask_name) {
+  body = text("No problem! Please type the name you'd like other users to see 🙂");
 } else if (!r.complete) {
   body = (QUESTIONS[r.next] || QUESTIONS.name)();
   if ($json.route === 'hold' && first) {
@@ -992,6 +998,9 @@ if (r.error === 'bad_social') {
     body = text(done + 'Tell me what you want to play, when and where, e.g. "Football today at 6 PM in Indiranagar, Bangalore"');
   }
 }
+// the name they typed after "No, change it" was just saved (Name answer, section 18)
+// (the age question already says "Nice to meet you, <name>!")
+if (r.name_saved && r.next !== 'age') body = prefix(body, `Thank you, *${r.name_saved}*! ✅\n\n`);
 // "about you" was just saved: show what matches will see
 if (r.about_summary && !r.error) body = prefix(body, `Got it 🙌 Here's what I'll share: “${r.about_summary}”\n\n`);
 const plain = body.type === 'text' ? body.text.body : body.interactive.body.text;
@@ -1904,6 +1913,142 @@ return $('Referral hold?').all(1).some((i) => i.json.menu) ? [{ json: {} }] : []
 """), [col(6), YR + 100])
 link('Send referral message', 'Menu after welcome?')
 link('Menu after welcome?', 'SERVICE TYPE LIST BUILDING')
+
+# ── 18. "Please confirm your name" before matching (db/migrations/017_name_confirm*.sql) ─────────────
+# Many WhatsApp profile names aren't real names. Before a matching service starts (🎯 Partner, 🤝 Connect and
+# 🚕 Cab buddy from the menu, or asked for in words) Name gate → public.tori_name_gate: confirmed → the service
+# goes on; otherwise "Other users will see you as: *Harsh*. Is this correct?" [Yes, that's me] [No, change it]
+# (nm_yes / nm_no). No → "Please type your name". Name answer? (first, after New message?) catches the answer
+# and the typed name (Log inbound message returns name_step); once confirmed the message that started it is
+# replayed to this workflow (signed like the voice relay), so nobody has to ask twice. Onboarding asks the same
+# question (pf_name_wa / pf_name_no, Build profile reply).
+YN = Y0 + 7400
+NAME_STEP = "$('Log inbound message').first().json.res?.name_step"
+add('Name answer?', *IF, bool_if(
+    "(($json.messages?.[0]?.interactive?.button_reply?.id) || '').startsWith('nm_') || ($json.messages?.[0]?.type === 'text' && (("
+    + NAME_STEP + " === 'type' && !/^\\s*(hi+|hello|hey|menu|start)\\W*$/i.test($json.messages[0].text?.body || '')) || ("
+    + NAME_STEP + " === 'confirm' && /^\\s*(yes|y|yeah|yep|yup|haa*n?|ji|ji haan|correct|right|sahi|no|n|nope|nah|nahi|nahin|na|cancel|stop)\\s*[.!]*\\s*$/i"
+    ".test($json.messages[0].text?.body || ''))))"),
+    [trig['position'][0] + 600, trig['position'][1]])
+unlink('New message?', 'Google?')
+link('New message?', 'Name answer?')
+link('Name answer?', 'Read name answer', 0)
+link('Name answer?', 'Google?', 1)
+add('Read name answer', *CODE, code(r"""
+const msg = $json.messages[0];
+const id = msg.interactive?.button_reply?.id || '';
+const t = (msg.text?.body || '').trim();
+const step = $('Log inbound message').first().json.res?.name_step;
+const answer = id === 'nm_yes' ? 'yes' : id === 'nm_no' ? 'no'
+  : /^\s*(cancel|stop)\W*$/i.test(t) ? 'cancel'
+  : step === 'confirm' ? (/^\s*(no|n|nope|nah|nahi|nahin|na)\b/i.test(t) ? 'no' : 'yes') : 'text';
+return { json: { wa: msg.from, answer, text: t } };
+""", each=True), [col(0), YN])
+add('Save name answer', *PG, sql("SELECT public.tori_name_answer($1, $2, nullif($3, '')) AS r, $1 AS \"to\";",
+                                 '[ $json.wa, $json.answer, $json.text ]'), [col(1), YN], credentials=CRED_POSTGRES)
+link('Read name answer', 'Save name answer')
+add('Name answer reply', *CODE, code(r"""
+const r = $json.r || {};
+const to = $json.to;
+// onboarding asked for the name: its next question follows (Build profile reply)
+if (r.profile) return [{ json: { go: 'profile', res: { ...r.profile, name_saved: r.name }, to, route: 'profile', first: false } }];
+const nm = r.name ? `*${r.name}*` : '';
+const t = {
+  confirmed: `Thank you, ${nm}! ✅`,
+  saved: `Thank you, ${nm}! ✅ Other users will see you as ${nm}.`,
+  ask_type: "No problem! Please type the name you'd like other users to see 🙂",
+  bad_name: "Sorry, that doesn't look like a name 🙈 Please type just your name, for example *Priya*. (Send *cancel* to stop.)",
+  cancelled: 'Okay, no problem 👍 Message me any time.',
+}[r.state] || (nm ? `You're all set, ${nm} ✅` : "You're all set ✅");
+const done = ['confirmed', 'saved'].includes(r.state);
+return [{ json: { go: 'reply', to, body: { type: 'text', text: { preview_url: false, body: t } },
+                  replay: done && r.resume?.kind === 'replay' ? r.resume.trigger : null } }];
+"""), [col(2), YN])
+link('Save name answer', 'Name answer reply')
+add('Name for onboarding?', *IF, bool_if("$json.go === 'profile'"), [col(3), YN])
+link('Name answer reply', 'Name for onboarding?')
+link('Name for onboarding?', 'Build profile reply', 0)
+link('Name for onboarding?', 'Send name reply', 1)
+add('Send name reply', *HTTP, whatsapp_send("{ messaging_product: 'whatsapp', to: $json.to, ...$json.body }"),
+    [col(4), YN + 100], **SEND)
+# the message that asked for the service, sent to this workflow again now that the name is confirmed
+add('Replay after name', *CODE, code(r"""
+const crypto = require('crypto');
+const trig = $('Name answer reply').first().json.replay;
+const msg = trig?.messages?.[0];
+if (!msg) return [];
+const value = { messaging_product: 'whatsapp', metadata: trig.metadata || {}, contacts: trig.contacts || [],
+                messages: [{ ...msg, id: msg.id + '.named', timestamp: String(Math.floor(Date.now() / 1000)) }] };
+const raw = JSON.stringify({ object: 'whatsapp_business_account',
+                             entry: [{ id: 'name-replay', changes: [{ field: 'messages', value }] }] });
+const signature = 'sha256=' + crypto.createHmac('sha256', $env.BOT_META_APP_SECRET || '').update(raw).digest('hex');
+return [{ json: { raw, signature } }];
+"""), [col(5), YN + 100])
+link('Send name reply', 'Replay after name')
+link('Replay after name', 'Send to bot as text')
+
+# "🤝Connect-MyPerfect Match" never sent: its JSON body had raw line breaks inside a string (n8n: "Bad control
+# character in string literal"). Same text, built with JSON.stringify.
+legacy = nodes['share locn msg1']['parameters']
+m = re.search(r'"body": "(.*)"\s*\}\s*\}\s*$', legacy['jsonBody'], re.S)
+assert m and '{{' not in m.group(1), 'share locn msg1: body text not found'
+legacy['jsonBody'] = ("={{ JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', "
+                      "to: $('WhatsApp Trigger').first().json.messages[0].from, type: 'text', "
+                      "text: { preview_url: false, body: " + json.dumps(m.group(1), ensure_ascii=False) + " } }) }}")
+
+# the gate, in front of every matching service
+GATED = [('Switch', 'Ask partner details', 2), ('Switch', 'share locn msg1', 1),
+         ('Partner route', 'Partner-matching- get back msg', 3), ('Partner route', 'Travel assistant', 6),
+         ('Read travel button', 'Travel assistant', 0)]
+for src, dst, out in GATED:
+    unlink(src, dst, out)
+    link(src, 'Name gate input', out)
+add('Name gate input', *CODE, code(r"""
+// which service, and the message to replay once the name is confirmed
+const trig = $('WhatsApp Trigger').first().json;
+const msg = trig.messages[0];
+const it = $input.first().json;
+let service = 'partner', check = true;
+if (it.route === 'legacy') service = 'legacy';
+// travel: only a new request; answers inside the travel flow (consent, block, the trip form…) go straight on
+else if (it.intent !== undefined) { service = 'travel'; check = ['travel_start', 'travel_partner'].includes(it.intent); }
+else if (/connect/i.test(msg.interactive?.list_reply?.title || '')) service = 'connect';
+return [{ json: { wa: msg.from, name: (trig.contacts?.[0]?.profile?.name || '').trim(), service, check, payload: it,
+  resume: { kind: 'replay', trigger: { metadata: trig.metadata || {}, contacts: trig.contacts || [], messages: [msg] } } } }];
+"""), [col(0), YN + 500])
+add('Check name', *PG, sql("SELECT public.tori_name_gate($1, nullif($2, ''), $3::jsonb, $4::boolean) AS g;",
+                           '[ $json.wa, $json.name, JSON.stringify($json.resume), String($json.check) ]'),
+    [col(1), YN + 500], credentials=CRED_POSTGRES)
+link('Name gate input', 'Check name')
+add('Name confirmed?', *IF, bool_if('$json.g?.confirmed === true'), [col(2), YN + 500])
+link('Check name', 'Name confirmed?')
+add('Continue service', *CODE, code("return [{ json: $('Name gate input').first().json.payload }];"), [col(3), YN + 400])
+link('Name confirmed?', 'Continue service', 0)
+SERVICES = ['partner', 'connect', 'legacy', 'travel']
+add('Service', 'n8n-nodes-base.switch', 3.2, {
+    'mode': 'expression', 'numberOutputs': len(SERVICES),
+    'output': "={{ " + json.dumps(SERVICES) + ".indexOf($('Name gate input').first().json.service) }}",
+}, [col(4), YN + 400])
+link('Continue service', 'Service')
+for i, dst in enumerate(['Ask partner details', 'share locn msg1', 'Partner-matching- get back msg', 'Travel assistant']):
+    link('Service', dst, i)
+add('Name question', *CODE, code(r"""
+const g = $json.g;
+const gate = $('Name gate input').first().json;
+const why = { partner: 'Before I look for a partner', connect: 'Before I look for like-minded people',
+              legacy: 'Before I look for like-minded people', travel: 'Before I look for a travel buddy' }[gate.service];
+const body = g.step === 'confirm'
+  ? { type: 'interactive', interactive: { type: 'button',
+      body: { text: `${why}, could you please confirm your name? 🙂\n\nOther users will see you as: *${g.name}*\n\nIs this correct?` },
+      action: { buttons: [ { type: 'reply', reply: { id: 'nm_yes', title: "Yes, that's me" } },
+                           { type: 'reply', reply: { id: 'nm_no', title: 'No, change it' } } ] } } }
+  : { type: 'text', text: { preview_url: false, body: `${why}, may I know your name? 🙂\n\nPlease type the name you'd like other users to see.` } };
+return [{ json: { to: gate.wa, body } }];
+"""), [col(3), YN + 600])
+link('Name confirmed?', 'Name question', 1)
+add('Send name question', *HTTP, whatsapp_send("{ messaging_product: 'whatsapp', to: $json.to, ...$json.body }"),
+    [col(4), YN + 600], **SEND)
+link('Name question', 'Send name question')
 
 # ── 11. People outside WhatsApp's 24-hour window (db/migrations/008_held_messages*.sql) ────────
 # Offers and match updates for someone who hasn't written in 24 h are kept in public.tori_held_messages

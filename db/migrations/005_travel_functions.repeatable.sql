@@ -794,7 +794,10 @@ BEGIN
       SELECT * INTO o FROM public.travel_users
        WHERE id = CASE WHEN m.user_a = p_user_id THEN m.user_b ELSE m.user_a END;
       v := v || jsonb_build_object('their_wa_id', o.wa_id,
-                                   'their_name', nullif(split_part(trim(coalesce(o.profile_name, '')), ' ', 1), ''));
+                                   -- the name they confirmed in workflow 06 (017), else their WhatsApp name
+                                   'their_name', nullif(split_part(trim(coalesce(
+                                     (SELECT tu.name FROM public.tori_users tu WHERE tu.phone = '+' || o.wa_id AND tu.name_source = 'user'),
+                                     o.profile_name, '')), ' ', 1), ''));
     END IF;
   END IF;
   IF mine.id IS NOT NULL THEN
