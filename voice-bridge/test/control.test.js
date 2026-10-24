@@ -91,6 +91,26 @@ test('Vapi call: existing assistant, WebSocket transport, 16 kHz PCM, the Meta c
   assert.equal(req.body.phoneNumberId, undefined, 'phone fields are not allowed with the WebSocket transport');
 });
 
+test('the call tells the assistant who is calling, from Tori', async () => {
+  const seen = [];
+  const fetchImpl = async (url, init) => {
+    seen.push({ url, key: init.headers['x-tori-mcp-key'], body: JSON.parse(init.body) });
+    if (url.endsWith('/api/agent/context')) return new Response(JSON.stringify({ text: 'Name: Asha (confirmed)' }), { status: 200 });
+    return new Response(JSON.stringify({ id: 'vc1', transport: { websocketCallUrl: 'wss://x' } }), { status: 201 });
+  };
+  const vapi = vapiClient({ privateKey: 'PRIV', assistantId: 'a', contextUrl: 'http://web:3000/api/agent/context', contextKey: 'K', fetchImpl });
+  await vapi.createCall({ metaCallId: 'wacid.A', waId: '919500000001', name: 'Asha' });
+  assert.deepEqual(seen[0], { url: 'http://web:3000/api/agent/context', key: 'K', body: { wa_id: '919500000001' } });
+  assert.equal(seen[1].body.assistantOverrides.variableValues.tori_caller, 'Name: Asha (confirmed)');
+
+  const down = vapiClient({ privateKey: 'PRIV', assistantId: 'a', contextUrl: 'http://web:3000/api/agent/context', contextKey: 'K',
+    fetchImpl: async (url, init) => (url.endsWith('/context') ? Promise.reject(new Error('down'))
+      : (seen.push({ body: JSON.parse(init.body) }), new Response(JSON.stringify({ id: 'vc2', transport: { websocketCallUrl: 'wss://x' } }), { status: 201 }))) });
+  await down.createCall({ metaCallId: 'wacid.B', waId: '919500000002', name: 'Bina' });
+  assert.match(seen.at(-1).body.assistantOverrides.variableValues.tori_caller, /Bina\. Tori's details didn't load: use get_my_status/,
+               'Tori unreachable: the call still starts');
+});
+
 test('Vapi refusals are errors', async () => {
   const vapi = vapiClient({ privateKey: 'bad', assistantId: 'a', fetchImpl: async () => new Response('{"message":"Invalid Key"}', { status: 401 }) });
   await assert.rejects(vapi.createCall({ metaCallId: 'x' }), /\(401\): Invalid Key/);

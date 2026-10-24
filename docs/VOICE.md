@@ -83,6 +83,61 @@ messages. Its trigger subscribes the Meta app to `messages` and `calls`.
 in `public.voice_calls`, with its events in `public.voice_call_events`. A call's state only moves forward,
 so late or repeated events never reopen a finished call. View the calls with `SELECT * FROM public.v_voice_calls;`.
 
+## One conversation: the voice agent and the WhatsApp bot (MCP)
+
+The WhatsApp bot (workflow 06, with its Groq LLM) is the only brain. On a call, the voice agent is its voice:
+
+```text
+caller ──speaks──► Vapi agent ──message_tori──► web /api/mcp ──signed "WhatsApp message" from the caller──► n8n 06
+   ▲                    ▲                                                                                    │
+   └──says the reply────┴──── the bot's replies (logged on their way to Meta by web /api/graph) ◄────────────┘
+                                                   └──► the same messages in the caller's WhatsApp chat
+```
+
+- **What the caller says goes to the bot, as if they had typed it.** The bot decides what happens next: the name
+  check, profile questions, a missing time, matching. The agent says the bot's reply, sends the caller's answer
+  back, and offers the bot's buttons as choices, so the same steps happen on the call as in the chat.
+- **The chat stays in step.** Every bot message also lands in the caller's WhatsApp chat. The first one after
+  each thing said on the call starts with it (📞 *On your call: "6 pm"*), so the chat reads as one conversation.
+  Anything started on a call can be finished in the chat, and the other way round: the state lives in Postgres.
+- **How the agent gets the replies:** n8n's `BOT_WHATSAPP_GRAPH_URL` points at the web app (`/api/graph`, set in
+  docker-compose.yml). It passes every request on to the Graph API (`.env`'s `BOT_WHATSAPP_GRAPH_URL`, default
+  Meta) unchanged, and logs each sent message with its buttons in `tori_messages` (`direction = 'out'`, `payload`;
+  db 018). It never delays or fails a send because of logging. It refuses requests that came through the public
+  tunnel. Trade-off: the bot's sends now need the web container to be up (n8n starts after it).
+
+The assistant has one Vapi **MCP** tool, `toriTools`, pointing at the Tori MCP server:
+`POST <BOARD_PUBLIC_URL>/api/mcp` ([web/src/app/api/mcp/route.ts](../web/src/app/api/mcp/route.ts),
+[web/src/lib/agent.ts](../web/src/lib/agent.ts)). Vapi sends `x-tori-mcp-key: TORI_MCP_KEY` (requests without it
+get 401) and `X-Call-Id`.
+
+| Tool | Does |
+|---|---|
+| `message_tori` `{text}` or `{button_id}` | One turn with the bot: what the caller said, or the button they chose. Returns the bot's replies with their buttons, after waiting up to 15 s for them |
+| `check_tori_replies` | Bot messages that arrived since (a slow reply, a match found during the call) |
+| `search_open_games` | Open games on the board, with join codes. Works for anyone, also on the website |
+| `get_my_status` | A quick look at the caller's requests, matches, cab request and wallet balance |
+
+**Who is calling:** for a WhatsApp call, `X-Call-Id` is the Vapi call ID that voice-bridge logged in `voice_calls`
+next to the caller's number. The agent talks to the bot as that person while the call is live (and until 2 minutes
+after it ends). Web page (/voice) calls are anonymous: only `search_open_games` works there, and the agent asks
+them to call or message Tori on WhatsApp. There are no payment tools, so money never moves by voice. Each call
+can take at most 30 turns.
+
+**Setup:** set `TORI_MCP_KEY` in `.env`, then run `scripts/vapi-mcp.sh`. It creates or updates the tool and
+attaches it to `VAPI_ASSISTANT_ID`, changing only the assistant's `toolIds`. The board's tunnel address changes
+on every restart, so `scripts/board-tunnel.sh` runs it each time. Each tool call is logged:
+`docker compose logs web | grep "mcp tool"`.
+
+**Tests:** `E2E_ONLY=mcp scripts/travel-e2e.sh` ([scripts/mcp_e2e.py](../scripts/mcp_e2e.py)). It covers:
+- the protocol, the key, and that the pass-through refuses public requests;
+- the bot's reply reaching the agent and appearing in the chat with the echo;
+- a complete profile set up by voice (joining a game);
+- a missing time asked on the call;
+- late replies, and ended calls.
+
+The other end-to-end suites now send every bot message through the pass-through too.
+
 ## Setup
 
 ### 1. Vapi dashboard

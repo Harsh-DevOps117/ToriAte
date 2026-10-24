@@ -22,6 +22,9 @@ function loadConfig(env = process.env) {
       sampleRate: num('VOICE_VAPI_SAMPLE_RATE', 16000),
       serverUrl: pick('VAPI_SERVER_URL'),
       serverSecret: pick('VAPI_SERVER_SECRET'),
+      // who is calling, from Tori (web /api/agent/context), for the assistant's prompt
+      contextUrl: pick('TORI_CONTEXT_URL') || 'http://web:3000/api/agent/context',
+      contextKey: pick('TORI_MCP_KEY'),
     },
     eventsUrl: pick('VOICE_EVENTS_URL'),
     maxCalls: num('VOICE_MAX_CALLS', 5),

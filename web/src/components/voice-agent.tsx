@@ -16,6 +16,8 @@ const STATUS: Record<Status, { label: string; dot: string }> = {
   error: { label: 'Error', dot: 'bg-sig-coral' },
 };
 
+const WEB_CALLER = 'A visitor on the Tori website, not identified. Search open games with them; for anything personal '
+  + '(their requests, profile, wallet, finding a partner or cab buddy) ask them to call or message Tori on WhatsApp.';
 const START_TIMEOUT_MS = 25_000;
 const BARS = 28;
 // fixed per-bar weights so the waveform has a shape instead of moving as one block
@@ -120,7 +122,8 @@ export function VoiceAgent({ publicKey, assistantId }: { publicKey: string; assi
     try {
       const vapi = await getVapi();
       startTimer.current = setTimeout(() => fail('The call took too long to connect. Please try again.'), START_TIMEOUT_MS);
-      const call = await vapi.start(assistantId);
+      // the website doesn't know who is talking: the prompt's "who is calling" says so (scripts/vapi-mcp.sh)
+      const call = await vapi.start(assistantId, { variableValues: { channel: 'web', tori_caller: WEB_CALLER } });
       // null = the SDK failed and already emitted `error`; keep a message in case it did not
       if (!call) fail(describeVapiError(null));
     } catch (e) {

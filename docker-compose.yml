@@ -30,7 +30,10 @@ x-n8n-env: &n8n-env
   BOT_WHATSAPP_PHONE_NUMBER_ID: ${BOT_WHATSAPP_PHONE_NUMBER_ID:-}
   BOT_WHATSAPP_TOKEN: ${BOT_WHATSAPP_TOKEN:-}
   BOT_SUPABASE_SERVICE_KEY: ${BOT_SUPABASE_SERVICE_KEY:-}
-  BOT_WHATSAPP_GRAPH_URL: ${BOT_WHATSAPP_GRAPH_URL:-}
+  # every WhatsApp send goes through the web app (/api/graph), which passes it on to the Graph API unchanged and
+  # logs it, so the voice agent can say the bot's replies on a call; .env's BOT_WHATSAPP_GRAPH_URL is where it goes
+  BOT_WHATSAPP_GRAPH_URL: http://web:3000/api/graph
+  BOT_WHATSAPP_GRAPH_UPSTREAM: ${BOT_WHATSAPP_GRAPH_URL:-https://graph.facebook.com/v19.0}
   # workflow 06 hands Google requests to the ToriGoogle stack (../ToriGoogle); empty URL = off
   TORI_GOOGLE_URL: ${TORI_GOOGLE_URL:-}
   TORI_GOOGLE_SECRET: ${TORI_GOOGLE_SECRET:-}
@@ -194,6 +197,8 @@ services:
     depends_on:
       n8n-bootstrap:
         condition: service_completed_successfully
+      web:
+        condition: service_started
 
   n8n-owner:
     image: n8nio/n8n:2.41.3
@@ -240,6 +245,14 @@ services:
       # Harsh AI voice page (/voice): a Vapi *public* key, restricted to this site's origins in the Vapi dashboard
       NEXT_PUBLIC_VAPI_PUBLIC_KEY: ${NEXT_PUBLIC_VAPI_PUBLIC_KEY:-}
       VAPI_ASSISTANT_ID: ${VAPI_ASSISTANT_ID:-afd96ebf-40a7-40d2-bc0b-b6b94367e588}
+      # Tori MCP server (/api/mcp) for the voice agent: Vapi sends TORI_MCP_KEY; actions are handed to workflow 06
+      # as messages from the caller, signed with the Meta app secret (TORI_BOT_INBOUND_URL = its WhatsApp Trigger)
+      TORI_MCP_KEY: ${TORI_MCP_KEY:-}
+      BOT_META_APP_SECRET: ${BOT_META_APP_SECRET:-}
+      BOT_WHATSAPP_PHONE_NUMBER_ID: ${BOT_WHATSAPP_PHONE_NUMBER_ID:-}
+      TORI_BOT_INBOUND_URL: ${TORI_BOT_INBOUND_URL:-http://n8n:5678/webhook/e3c3d145-ffbd-454f-92ca-11a5e388a3ea/webhook}
+      # where the bot's WhatsApp sends (/api/graph) are passed on to
+      WHATSAPP_GRAPH_UPSTREAM: ${BOT_WHATSAPP_GRAPH_URL:-https://graph.facebook.com/v19.0}
     ports:
       - "127.0.0.1:${BOARD_PORT:-3001}:3000"
     depends_on:
@@ -265,6 +278,8 @@ services:
       VAPI_SERVER_URL: ${VAPI_SERVER_URL:-}
       VAPI_SERVER_SECRET: ${VAPI_SERVER_SECRET:-}
       VOICE_EVENTS_URL: ${VOICE_EVENTS_URL:-http://n8n:5678/webhook/voice/events}
+      # who is calling (web /api/agent/context), for the assistant's prompt
+      TORI_MCP_KEY: ${TORI_MCP_KEY:-}
       VOICE_MAX_CALLS: ${VOICE_MAX_CALLS:-5}
       VOICE_MAX_CALL_SECONDS: ${VOICE_MAX_CALL_SECONDS:-900}
       VOICE_STUN_URLS: ${VOICE_STUN_URLS:-}

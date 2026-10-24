@@ -4,7 +4,7 @@
 #   - real Groq (LLM_API_KEY from .env), mock WhatsApp + mock geocoder + fake Razorpay (mock-apis)
 #   - the web app (ToriPay's /api/toripay/answer and payouts), port 13001
 #   - workflow 06 is imported as a copy whose WhatsApp Trigger is a plain webhook (POST /webhook/wa-test)
-# Runs the db/tests/*.sql scenarios, then scripts/travel_e2e.py, profile_e2e.py, name_e2e.py and referral_e2e.py
+# Runs the db/tests/*.sql scenarios, then scripts/travel_e2e.py, profile_e2e.py, name_e2e.py, mcp_e2e.py and referral_e2e.py
 # (~8 minutes: Groq free-tier pacing).
 #
 #   scripts/travel-e2e.sh          run, then remove the stack
@@ -12,6 +12,7 @@
 #   E2E_ONLY=profile scripts/travel-e2e.sh    run only the profile conversation
 #   E2E_ONLY=referral scripts/travel-e2e.sh   run only the referral one (~1 minute, no LLM calls)
 #   E2E_ONLY=name scripts/travel-e2e.sh       run only "Please confirm your name" (~2 minutes)
+#   E2E_ONLY=mcp scripts/travel-e2e.sh        run only the voice agent's Tori tools (~2 minutes)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
@@ -88,6 +89,8 @@ TRAVEL_TRIP_FLOW_ID=mock-flow-1
 TRAVEL_TRIP_FLOW_MODE=draft
 BOARD_PUBLIC_URL=https://board.test
 BOARD_WHATSAPP_NUMBER=15550001111
+TORI_MCP_KEY=e2e-mcp-key
+TORI_BOT_INBOUND_URL=http://n8n:5678/webhook/wa-test
 BOT_RELAY_URL=http://localhost:5678/webhook/wa-test
 BOT_META_APP_SECRET=e2e-test-app-secret
 WALLET_API_KEY=e2e-wallet-key
@@ -158,6 +161,10 @@ fi
 if [ -z "${E2E_ONLY:-}" ] || [ "${E2E_ONLY:-}" = name ]; then
   echo "── Name confirmation end to end (scripts/name_e2e.py)"
   python3 "$ROOT/scripts/name_e2e.py" || status=1
+fi
+if [ -z "${E2E_ONLY:-}" ] || [ "${E2E_ONLY:-}" = mcp ]; then
+  echo "── Voice agent's Tori tools end to end (scripts/mcp_e2e.py)"
+  python3 "$ROOT/scripts/mcp_e2e.py" || status=1
 fi
 if [ -z "${E2E_ONLY:-}" ] || [ "${E2E_ONLY:-}" = referral ]; then
   echo "── Referrals end to end (scripts/referral_e2e.py)"

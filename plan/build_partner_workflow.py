@@ -303,7 +303,7 @@ const SYSTEM = `You read WhatsApp messages sent to Tori, a sports, activity and 
 intent:
 - find_partner: the person wants someone to play a sport or do an activity with (a partner, opponent, teammates, "someone to play with"), or is answering a question about their unfinished request shown as "Current request".
 - cancel_partner: they want to stop or cancel looking for a sports or activity partner.
-- check_status: they ask whether Tori has found them a partner yet, or for an update on their request ("any match?", "koi mila?", "status").
+- check_status: they ask about their own requests: whether Tori has found them a partner or travel buddy yet, whether they have a request going, or for an update ("any match?", "koi mila?", "status", "am I looking for a cab?", "do I have a cab buddy request?", "what did I ask for on the call?"). Asking whether they already have a request is check_status, never a new request.
 - set_spots: they change how many people can join the game they already posted ("make it 4 people", "I need 2 more now"); put the number in players_needed. A new request that also says how many ("need 3 more for football tomorrow") is find_partner.
 - profile_answer: Tori asked about them ("Profile questions asked: yes") and the message gives any of their name, age, gender, interests or social link, even a bare "24", "Harsh" or "female, cricket".
 - profile_or_group: they describe themselves (age, education, hobbies) to be matched with a like-minded person or group, without a specific activity, time and place, when profile questions were not asked.
@@ -319,7 +319,7 @@ Extract only what the message (or the current request) states. Use null for anyt
 Sports fields (activity … notes) are only for find_partner; otherwise null.
 - activity: lower-case English. Prefer: football, cricket, badminton, tennis, table_tennis, pickleball, padel, basketball, volleyball, squash, running, cycling, swimming, gym, yoga, hiking, chess. Map synonyms (soccer, futsal -> football; ping pong, TT -> table_tennis; shuttle -> badminton).
 - city: lower-case English (bengaluru -> bangalore, gurugram -> gurgaon). If only a well-known neighbourhood is given and it clearly belongs to one city (Indiranagar -> bangalore), fill in the city.
-- area: the neighbourhood or locality only, as written (e.g. "Indiranagar"), without words like "near".
+- area: the neighbourhood or locality only, as written (e.g. "Indiranagar"), without words like "near". Any place name or abbreviation is an area, even one you don't recognise (HSR, HSL, BTM, JP Nagar), so "HSL Bangalore" is area HSL, city bangalore.
 - date: YYYY-MM-DD, resolved from today / tonight / tomorrow / weekday names using the current date. null if no day is mentioned.
 - time_exact: 24-hour HH:MM when a clock time is given. If AM/PM is not stated, pick the reading between 06:00 and 22:59 the person most likely means ("6" -> 18:00 unless they say morning).
 - part_of_day: morning, afternoon, evening or night, only when no clock time is given ("tonight" -> night, "shaam" -> evening).
@@ -393,8 +393,11 @@ add('Understand message (LLM)', *HTTP, {
     'method': 'POST', 'url': LLM_URL,
     'authentication': 'genericCredentialType', 'genericAuthType': 'httpHeaderAuth',
     'sendBody': True, 'specifyBody': 'json', 'jsonBody': '={{ JSON.stringify($json.request) }}',
-    'options': {'timeout': 30000, 'response': {'response': {'fullResponse': True, 'neverError': True}}},
-}, [col(2), Y1], credentials=CRED_LLM, onError='continueRegularOutput')
+    'options': {'timeout': 30000, 'response': {'response': {'fullResponse': True}}},
+}, [col(2), Y1], credentials=CRED_LLM, onError='continueRegularOutput',
+    # Groq's free tier allows 8k tokens a minute: a 429 (or 5xx) throws, n8n waits and tries again; after 3 tries
+    # the error goes on and the bot says it's having trouble
+    retryOnFail=True, maxTries=3, waitBetweenTries=4000)
 link('Understand message (LLM)', 'Validate partner request')
 
 add('Validate partner request', *CODE, code(r"""
@@ -446,6 +449,20 @@ if (ai.intent === 'cancel_partner') return { json: { route: 'cancel', to, text: 
 if (ai.intent === 'profile_answer' && awaiting) return { json: { route: 'profile', to, name, profile: ai.profile } };
 // anything else while onboarding (except a request, a cancel or travel): ask the current question again
 if (awaiting && (ai.intent === 'other' || ai.intent === 'profile_or_group')) return { json: { route: 'profile', to, name, profile: ai.profile || {} } };
+// A short answer to the bot's own question about the unfinished request ("HSL Bangalore" after "Which area in
+// Bangalore?") continues it, even when the LLM didn't recognise the place: the words left after the city are the area
+const lastAsk = base && base.status === 'draft' && Date.now() - new Date(base.updated_at).getTime() < 30 * 60e3;
+const smallTalk = /^\s*(thanks?|thank you|ty|ok(ay)?|k|cool|great|nice|yes|yeah|no|nope|hmm+|hi+|hello|hey|bye|cancel|stop)\W*$/i.test(text);
+if (lastAsk && !smallTalk && ['other', 'profile_or_group'].includes(ai.intent) && text.trim().split(/\s+/).length <= 6 && !/\?/.test(text)) {
+  ai.intent = 'find_partner';
+  if (!ai.area && !base.area) {
+    const city = String(ai.city || base.city || '');
+    const CITY_WORDS = { bangalore: 'bangalore|bengaluru|blr', gurgaon: 'gurgaon|gurugram', mumbai: 'mumbai|bombay', delhi: '(new )?delhi' }[city] || city;
+    const rest = text.replace(city ? new RegExp(`\\b(${CITY_WORDS})\\b`, 'ig') : /$^/, ' ')
+      .replace(/\b(in|at|near|around|area|the)\b/ig, ' ').replace(/[,.!]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (rest) ai.area = rest;
+  }
+}
 if (ai.intent === 'profile_or_group' || ai.intent === 'profile_answer') return { json: { route: 'legacy', to } };
 if (ai.intent !== 'find_partner') return { json: { route: 'menu', to } };
 
@@ -872,7 +889,8 @@ add('Ask Tori Google', *HTTP, {
     'headerParameters': {'parameters': [
         {'name': 'x-tori-secret', 'value': '={{ $env.TORI_GOOGLE_SECRET }}'},
         {'name': 'x-wa-token', 'value': '={{ $env.BOT_WHATSAPP_TOKEN }}'},
-        {'name': 'x-wa-graph', 'value': "={{ $env.BOT_WHATSAPP_GRAPH_URL || 'https://graph.facebook.com/v19.0' }}"},
+        # the Graph API itself, not this stack's logging pass-through (web /api/graph), which ToriGoogle can't reach
+        {'name': 'x-wa-graph', 'value': "={{ $env.BOT_WHATSAPP_GRAPH_UPSTREAM || $env.BOT_WHATSAPP_GRAPH_URL || 'https://graph.facebook.com/v19.0' }}"},
     ]},
     'sendBody': True, 'specifyBody': 'json',
     'jsonBody': "={{ JSON.stringify({ wa_id: $json.messages[0].from, "
@@ -1220,8 +1238,11 @@ add('Understand about (LLM)', *HTTP, {
     'method': 'POST', 'url': LLM_URL,
     'authentication': 'genericCredentialType', 'genericAuthType': 'httpHeaderAuth',
     'sendBody': True, 'specifyBody': 'json', 'jsonBody': '={{ JSON.stringify($json.request) }}',
-    'options': {'timeout': 30000, 'response': {'response': {'fullResponse': True, 'neverError': True}}},
-}, [col(10), YAB], credentials=CRED_LLM, onError='continueRegularOutput')
+    'options': {'timeout': 30000, 'response': {'response': {'fullResponse': True}}},
+}, [col(10), YAB], credentials=CRED_LLM, onError='continueRegularOutput',
+    # Groq's free tier allows 8k tokens a minute: a 429 (or 5xx) throws, n8n waits and tries again; after 3 tries
+    # the error goes on and the bot says it's having trouble
+    retryOnFail=True, maxTries=3, waitBetweenTries=4000)
 link('About LLM request', 'Understand about (LLM)')
 add('Read about', *CODE, code(r"""
 const req = $('About LLM request').first().json;
@@ -2077,7 +2098,7 @@ add('Send held message', *HTTP, whatsapp_send("{ messaging_product: 'whatsapp', 
     [trig['position'][0] + 1080, trig['position'][1] - 520], **SEND)
 link('Held to send', 'Send held message')
 
-add('Partner status', *PG, sql('SELECT public.tori_partner_status($1) AS s;', '[ $json.to ]'),
+add('Partner status', *PG, sql('SELECT public.tori_partner_status($1) AS s, public.travel_context($1) AS t;', '[ $json.to ]'),
     [col(5), YH], credentials=CRED_POSTGRES)
 add('Build status reply', *CODE, code(r"""
 const to = $('Validate partner request').item.json.to;
@@ -2102,10 +2123,18 @@ for (const j of s.joins || []) {
   const what = `${j.activity.replace(/_/g, ' ')} ${dayOf(j.play_date)} ${j.time_label} in ${j.area}`;
   lines.push(j.status === 'accepted' ? `✅ You're in ${j.host}'s ${what}.` : `🙋 Asked to join ${j.host}'s ${what}: waiting for them.`);
 }
+// their cab-buddy request too (public.travel_context, 005): a request made on a call shows up here as well
+const tr = ($json.t || {}).request;
+if (tr) {
+  const when = [tr.date ? dayOf(tr.date) : '', tr.time ? 'around ' + DateTime.fromFormat(tr.time, 'HH:mm').toFormat('h:mm a') : ''].filter(Boolean).join(' ');
+  lines.push(tr.status === 'active'
+    ? `🚕 Cab buddy: ${tr.source} → ${tr.destination}${when ? ', ' + when : ''}: ` + ($json.t.awaiting_answer ? 'someone matched, tap Yes or No on my message 👆' : 'still looking.')
+    : `🚕 Cab buddy: ${tr.source || '?'} → ${tr.destination || '?'}: I still need a few details, just reply here.`);
+}
 const text = lines.length
   ? lines.join('\n') + "\n\nI'll message you here as soon as something changes."
-  : "You're not looking for a partner right now. Tell me what you want to play, when and where, "
-    + 'e.g. "Badminton tomorrow 7 PM in HSR Layout, Bangalore"';
+  : "You're not looking for a partner or a cab buddy right now. Tell me what you want to play, when and where, "
+    + 'e.g. "Badminton tomorrow 7 PM in HSR Layout, Bangalore", or where you\'re travelling, e.g. "cab buddy from Indiranagar to the airport tomorrow 6 AM"';
 return { json: { to, text } };
 """, each=True), [col(6), YH])
 link('Partner status', 'Build status reply')

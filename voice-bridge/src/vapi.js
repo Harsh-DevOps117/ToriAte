@@ -12,13 +12,31 @@ class VapiError extends Error {
 }
 
 function vapiClient({ apiUrl = 'https://api.vapi.ai', privateKey, assistantId, sampleRate = 16000, serverUrl, serverSecret,
-                      fetchImpl = fetch, timeoutMs = 10000 }) {
+                      contextUrl, contextKey, fetchImpl = fetch, timeoutMs = 10000 }) {
+  // What Tori knows about the caller (web /api/agent/context): their profile, live requests and wallet, as a few
+  // lines for the assistant's prompt ({{tori_caller}}, scripts/vapi-mcp.sh). Never holds a call up for long:
+  // without it the agent still has get_my_status.
+  async function callerContext(waId, name) {
+    const fallback = `WhatsApp caller${name ? ` ${name}` : ''}. Tori's details didn't load: use get_my_status.`;
+    if (!contextUrl || !contextKey || !waId) return fallback;
+    try {
+      const res = await fetchImpl(contextUrl, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-tori-mcp-key': contextKey },
+        body: JSON.stringify({ wa_id: waId }), signal: AbortSignal.timeout(2500),
+      });
+      const body = res.ok ? await res.json() : null;
+      return body?.text || fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
   return {
     // → { id, websocketCallUrl }
     async createCall({ metaCallId, waId, name }) {
       const overrides = {
-        // the dashboard assistant stays as configured; this only tags the call and names the caller
-        variableValues: { callerName: name || '', channel: 'whatsapp' },
+        // the dashboard assistant stays as configured; this tags the call and tells it who is calling
+        variableValues: { callerName: name || '', channel: 'whatsapp', tori_caller: await callerContext(waId, name) },
         metadata: { channel: 'whatsapp', metaCallId, waId },
       };
       if (serverUrl) overrides.server = { url: serverUrl, ...(serverSecret ? { headers: { 'x-vapi-secret': serverSecret } } : {}) };

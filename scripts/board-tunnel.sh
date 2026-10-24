@@ -56,3 +56,6 @@ fi
 
 echo
 echo "Partner board is public at $url"
+
+# the voice agent's Tori tools live on the board (/api/mcp): point Vapi at the new address
+scripts/vapi-mcp.sh || echo "WARNING: couldn't update the voice agent's Tori tools: run scripts/vapi-mcp.sh" >&2
